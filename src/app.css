@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+:root {
+  /* Light theme colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+  --accent-color: #ec4899;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+  --button-bg: #3b82f6;
+  --button-text: #ffffff;
+  --button-hover: #2563eb;
+  --modal-bg: #ffffff;
+  --modal-overlay: rgba(0, 0, 0, 0.5);
+  /* Input colors */
+  --input-bg: #ffffff;
+  --input-text: #0f172a;
+  --input-border: #d1d5db;
+  --input-focus: #3b82f6;
+  --input-placeholder: #6b7280;
+}
+
+.dark {
+  /* Dark theme colors - purple hue */
+  --bg-primary: #1a1625;
+  --bg-secondary: #2a2438;
+  --text-primary: #f1f5f9;
+  --text-secondary: #a78bfa;
+  --border-color: #453c5c;
+  --accent-color: #ec4899;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+  --button-bg: #7c3aed;
+  --button-text: #ffffff;
+  --button-hover: #6d28d9;
+  --modal-bg: #2a2438;
+  --modal-overlay: rgba(26, 22, 37, 0.8);
+  /* Input colors */
+  --input-bg: #3c2f52;
+  --input-text: #f1f5f9;
+  --input-border: #5b4975;
+  --input-focus: #7c3aed;
+  --input-placeholder: #a78bfa;
+}
+
+#app {
+  user-select: none;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Global input styling */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+textarea,
+select {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  border-color: var(--input-border) !important;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="tel"]:focus,
+input[type="url"]:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  border-color: var(--input-focus) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder) !important;
+}
+
+/* Responsive design utilities */
+@media (min-width: 768px) {
+  .calendar-container {
+    max-width: 500px;
+    margin: 0 auto;
+  }
+}
+
+@media (min-width: 1024px) {
+  .stats-container {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  /* Ensure calendar doesn't get too large on desktop */
+  .calendar-container {
+    max-width: 450px;
+  }
+  
+  /* Stats sidebar scrollbar styling */
+  .stats-sidebar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+  }
+  
+  .stats-sidebar::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .stats-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .stats-sidebar::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 2px;
+  }
+}
