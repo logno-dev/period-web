@@ -10,7 +10,8 @@ export interface Session {
 
 export const getSession = () =>
   useSession<Session>({
-    password: process.env.SESSION_SECRET!
+    password: process.env.SESSION_SECRET!,
+    maxAge: 30 * 24 * 60 * 60 // 30 days in seconds
   });
 
 export async function createSession(user: Session, redirectTo?: string) {
