@@ -1,14 +1,13 @@
-import { Cron } from 'croner';
-import { db } from '../db';
-import { users, periods } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import { calculateNextPeriodPrediction, getCyclePhaseForDate, formatDate } from '../utils/periodUtils';
-import { sendNotificationEmail } from './notifications';
-
 async function checkNotifications() {
   console.log('Running daily notification check...');
   
   try {
+    const { db } = await import('../db');
+    const { users, periods } = await import('../db/schema');
+    const { eq } = await import('drizzle-orm');
+    const { calculateNextPeriodPrediction, getCyclePhaseForDate, formatDate } = await import('../utils/periodUtils');
+    const { sendNotificationEmail } = await import('./notifications');
+
     // Get all users with notifications enabled
     const allUsers = await db.select().from(users).where(eq(users.notificationsEnabled, true));
     
@@ -66,7 +65,19 @@ async function checkNotifications() {
   }
 }
 
-// Run daily at 9 AM
-export const notificationScheduler = new Cron('0 9 * * *', checkNotifications);
+// Initialize scheduler only in production runtime
+export async function initNotificationScheduler() {
+  if (typeof window === 'undefined' && process.env.NODE_ENV === 'production') {
+    try {
+      const { Cron } = await import('croner');
+      const scheduler = new Cron('0 9 * * *', checkNotifications);
+      console.log('Notification scheduler started - will run daily at 9 AM');
+      return scheduler;
+    } catch (error) {
+      console.error('Failed to initialize notification scheduler:', error);
+    }
+  }
+}
 
-console.log('Notification scheduler started - will run daily at 9 AM');
+// Export the check function for manual testing
+export { checkNotifications };
