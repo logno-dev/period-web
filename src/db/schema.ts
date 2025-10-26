@@ -4,6 +4,8 @@ export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").notNull().unique(),
   password: text("password"), // Optional for OAuth users
+  notificationsEnabled: integer("notifications_enabled", { mode: "boolean" }).notNull().default(true),
+  notificationEmails: text("notification_emails"), // JSON array of additional email addresses
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(new Date()),
 });

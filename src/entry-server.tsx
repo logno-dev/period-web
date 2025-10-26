@@ -1,4 +1,5 @@
 import { createHandler, StartServer } from "@solidjs/start/server";
+import "./services/notificationScheduler";
 
 export default createHandler(() => (
   <StartServer

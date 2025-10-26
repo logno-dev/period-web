@@ -8,6 +8,13 @@
       "when": 1761076303523,
       "tag": "0000_real_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1761457265211,
+      "tag": "0001_smiling_strong_guy",
+      "breakpoints": true
     }
   ]
 }
