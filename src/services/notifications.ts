@@ -19,7 +19,7 @@ export async function sendNotificationEmail(data: NotificationData) {
 
   try {
     await resend.emails.send({
-      from: 'Period Tracker <notifications@mail.bunch.codes>', // Change to your domain
+      from: 'Period Tracker <notifications@mail.bunch.codes>',
       to: data.email,
       subject,
       html: `
