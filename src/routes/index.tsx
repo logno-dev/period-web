@@ -511,6 +511,8 @@ export default function Home() {
                 <Calendar
                   markedDates={getMarkedDates()}
                   onDayPress={handleDatePress}
+                  periods={periods()}
+                  averageCycleLength={calculateAverageCycleLength(periods() || [])}
                 />
               </div>
             </div>

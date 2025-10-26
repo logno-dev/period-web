@@ -1,5 +1,7 @@
 import { createSignal, createMemo, For } from "solid-js";
-import { formatDate } from "../utils/periodUtils";
+import { formatDate, getCyclePhaseForDate } from "../utils/periodUtils";
+import PhaseTooltip from "./PhaseTooltip";
+import { Period, CyclePhase } from "../types/period";
 
 interface CalendarMarkedDate {
   color: string;
@@ -19,10 +21,13 @@ interface DayInfo {
 interface CalendarProps {
   markedDates?: Record<string, CalendarMarkedDate>;
   onDayPress?: (dateString: string) => void;
+  periods?: Period[];
+  averageCycleLength?: number;
 }
 
 export default function Calendar(props: CalendarProps) {
   const [currentDate, setCurrentDate] = createSignal(new Date());
+  const [tooltip, setTooltip] = createSignal({ visible: false, phase: 'menstrual' as CyclePhase, position: { x: 0, y: 0 } });
 
   const monthData = createMemo(() => {
     const date = currentDate();
@@ -131,6 +136,45 @@ export default function Calendar(props: CalendarProps) {
     return date.toDateString() === today.toDateString();
   };
 
+
+
+  const getPhaseForDate = (date: Date | null): CyclePhase | null => {
+    if (!date) return null;
+    const dateString = formatDate(date);
+    const marking = props.markedDates?.[dateString];
+    if (!marking) return null;
+    
+    // Map colors to phases based on the color scheme used in the app
+    const colorToPhase: Record<string, CyclePhase> = {
+      '#D53F8C': 'menstrual',  // Dark pink
+      '#FBB6CE': 'follicular', // Light pink  
+      '#3182CE': 'ovulation',  // Blue
+      '#805AD5': 'luteal'      // Purple
+    };
+    
+    return colorToPhase[marking.color] || null;
+  };
+
+  const showTooltip = (event: MouseEvent, date: Date | null) => {
+    if (!date) return;
+    const phase = getPhaseForDate(date);
+    if (!phase) return;
+
+    const rect = (event.target as HTMLElement).getBoundingClientRect();
+    setTooltip({
+      visible: true,
+      phase,
+      position: {
+        x: rect.left + rect.width / 2,
+        y: rect.top - 10
+      }
+    });
+  };
+
+  const hideTooltip = () => {
+    setTooltip(prev => ({ ...prev, visible: false }));
+  };
+
   return (
     <div 
       class="rounded-lg shadow-md overflow-hidden border"
@@ -194,45 +238,49 @@ export default function Calendar(props: CalendarProps) {
             const { date, marking, pillStart, pillEnd, pillMiddle } = dayInfo;
             
             return (
-              <div class="aspect-square relative">
+                <div class="aspect-square relative">
                 {date ? (
-                  <button
-                    onClick={() => props.onDayPress?.(formatDate(date))}
-                    class="absolute inset-0 flex items-center justify-center text-sm font-medium transition-colors"
-                    style={{
-                      'background-color': marking ? marking.color : 'transparent',
-                      'color': (() => {
-                        if (marking) {
-                          return marking.textColor;
+                  <div class="relative w-full h-full">
+                    <button
+                      onClick={() => props.onDayPress?.(formatDate(date))}
+                      class="absolute inset-0 flex items-center justify-center text-sm font-medium transition-colors"
+                      style={{
+                        'background-color': marking ? marking.color : 'transparent',
+                        'color': (() => {
+                          if (marking) {
+                            return marking.textColor;
+                          }
+                          return isToday(date) ? "var(--accent-color)" : "var(--text-primary)";
+                        })(),
+                        'border-radius': (() => {
+                          if (!marking) return '0';
+                          if (pillStart && pillEnd) {
+                            return '50%'; // Single day
+                          } else if (pillStart) {
+                            return '50% 0 0 50%'; // Start of group
+                          } else if (pillEnd) {
+                            return '0 50% 50% 0'; // End of group
+                          }
+                          return '0'; // Middle of group
+                        })(),
+                        "font-weight": isToday(date) ? "bold" : "500"
+                      }}
+                      onmouseover={(e) => {
+                        if (!marking) {
+                          e.currentTarget.style.backgroundColor = "var(--bg-secondary)";
                         }
-                        return isToday(date) ? "var(--accent-color)" : "var(--text-primary)";
-                      })(),
-                      'border-radius': (() => {
-                        if (!marking) return '0';
-                        if (pillStart && pillEnd) {
-                          return '50%'; // Single day
-                        } else if (pillStart) {
-                          return '50% 0 0 50%'; // Start of group
-                        } else if (pillEnd) {
-                          return '0 50% 50% 0'; // End of group
+                        showTooltip(e, date);
+                      }}
+                      onmouseout={(e) => {
+                        if (!marking) {
+                          e.currentTarget.style.backgroundColor = "transparent";
                         }
-                        return '0'; // Middle of group
-                      })(),
-                      "font-weight": isToday(date) ? "bold" : "500"
-                    }}
-                    onmouseover={(e) => {
-                      if (!marking) {
-                        e.currentTarget.style.backgroundColor = "var(--bg-secondary)";
-                      }
-                    }}
-                    onmouseout={(e) => {
-                      if (!marking) {
-                        e.currentTarget.style.backgroundColor = "transparent";
-                      }
-                    }}
-                  >
-                    {date.getDate()}
-                  </button>
+                        hideTooltip();
+                      }}
+                    >
+                      {date.getDate()}
+                    </button>
+                  </div>
                 ) : (
                   <div class="w-full h-full"></div>
                 )}
@@ -241,6 +289,13 @@ export default function Calendar(props: CalendarProps) {
           }}
         </For>
       </div>
+      
+      {/* Tooltip */}
+      <PhaseTooltip
+        phase={tooltip().phase}
+        visible={tooltip().visible}
+        position={tooltip().position}
+      />
     </div>
   );
 }

@@ -227,18 +227,6 @@ export default function Home() {
             style: 'destructive',
           },
         ]
-      );
-
-                if (response.ok) {
-                  refetch(); // Refetch the resource
-                }
-              } catch (error) {
-                console.error('Failed to end period:', error);
-              }
-            },
-            style: 'destructive',
-          },
-        ],
       });
     } else {
       // No active period, ask if they want to start one on this date
@@ -476,6 +464,8 @@ export default function Home() {
           <Calendar
             markedDates={getMarkedDates()}
             onDayPress={handleDatePress}
+            periods={periods()}
+            averageCycleLength={calculateAverageCycleLength(periods() || [])}
           />
         </div>
 

@@ -2,7 +2,8 @@ import { Title } from "@solidjs/meta";
 import { createMemo, createResource, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { A } from "@solidjs/router";
-import { useAuth, logout } from "~/auth";
+import { useAuth } from "~/components/Context";
+import { logout } from "~/auth";
 import Calendar from "~/components/Calendar";
 import Modal from "~/components/Modal";
 import CyclePhaseLegend from "~/components/CyclePhaseLegend";
@@ -463,6 +464,8 @@ export default function Tracker() {
           <Calendar
             markedDates={getMarkedDates()}
             onDayPress={handleDatePress}
+            periods={periods()}
+            averageCycleLength={calculateAverageCycleLength(periods() || [])}
           />
         </div>
 
