@@ -8,6 +8,14 @@ interface CalendarMarkedDate {
   endingDay: boolean;
 }
 
+interface DayInfo {
+  date: Date | null;
+  marking?: CalendarMarkedDate;
+  pillStart?: boolean;
+  pillEnd?: boolean;
+  pillMiddle?: boolean;
+}
+
 interface CalendarProps {
   markedDates?: Record<string, CalendarMarkedDate>;
   onDayPress?: (dateString: string) => void;
@@ -61,29 +69,61 @@ export default function Calendar(props: CalendarProps) {
     setCurrentDate(newDate);
   };
 
-  const getDayStyle = (date: Date | null) => {
-    if (!date) return {};
+  // Function to identify consecutive groups and assign pill positions
+  const processedDays = createMemo(() => {
+    const { days } = monthData();
+    const processed: DayInfo[] = [];
     
-    const dateString = formatDate(date);
-    const marking = props.markedDates?.[dateString];
+    // Convert days to DayInfo objects with markings
+    days.forEach((date) => {
+      const marking = date ? props.markedDates?.[formatDate(date)] : undefined;
+      processed.push({
+        date,
+        marking,
+        pillStart: false,
+        pillEnd: false,
+        pillMiddle: false
+      });
+    });
     
-    if (!marking) return {};
+    // Group consecutive marked days by color
+    const groups: { [color: string]: number[][] } = {};
     
-    let borderRadius = '0';
-    if (marking.startingDay && marking.endingDay) {
-      borderRadius = '50%';
-    } else if (marking.startingDay) {
-      borderRadius = '20px 0 0 20px';
-    } else if (marking.endingDay) {
-      borderRadius = '0 20px 20px 0';
-    }
+    processed.forEach((dayInfo, index) => {
+      if (dayInfo.marking) {
+        const color = dayInfo.marking.color;
+        if (!groups[color]) groups[color] = [];
+        
+        // Check if this continues the last group
+        const lastGroup = groups[color][groups[color].length - 1];
+        if (lastGroup && lastGroup[lastGroup.length - 1] === index - 1) {
+          lastGroup.push(index);
+        } else {
+          groups[color].push([index]);
+        }
+      }
+    });
     
-    return {
-      'background-color': marking.color,
-      'color': marking.textColor,
-      'border-radius': borderRadius,
-    };
-  };
+    // Apply pill styling based on groups
+    Object.values(groups).forEach((colorGroups) => {
+      colorGroups.forEach((group) => {
+        if (group.length === 1) {
+          // Single day - full rounded
+          processed[group[0]].pillStart = true;
+          processed[group[0]].pillEnd = true;
+        } else {
+          // Multi-day group
+          processed[group[0]].pillStart = true;
+          processed[group[group.length - 1]].pillEnd = true;
+          for (let i = 1; i < group.length - 1; i++) {
+            processed[group[i]].pillMiddle = true;
+          }
+        }
+      });
+    });
+    
+    return processed;
+  });
 
   const isToday = (date: Date | null) => {
     if (!date) return false;
@@ -149,46 +189,56 @@ export default function Calendar(props: CalendarProps) {
 
       {/* Calendar grid */}
       <div class="grid grid-cols-7">
-        <For each={monthData().days}>
-          {(date) => (
-            <div class="aspect-square p-1">
-              {date ? (
-                <button
-                  onClick={() => props.onDayPress?.(formatDate(date))}
-                  class="w-full h-full flex items-center justify-center text-sm font-medium transition-colors"
-                  style={{
-                    ...getDayStyle(date),
-                    "color": (() => {
-                      const dayStyle = getDayStyle(date);
-                      // If this date has a colored background (highlighted), keep text white for contrast
-                      if (dayStyle['background-color'] && dayStyle['background-color'] !== 'transparent') {
-                        return 'white';
+        <For each={processedDays()}>
+          {(dayInfo) => {
+            const { date, marking, pillStart, pillEnd, pillMiddle } = dayInfo;
+            
+            return (
+              <div class="aspect-square relative">
+                {date ? (
+                  <button
+                    onClick={() => props.onDayPress?.(formatDate(date))}
+                    class="absolute inset-0 flex items-center justify-center text-sm font-medium transition-colors"
+                    style={{
+                      'background-color': marking ? marking.color : 'transparent',
+                      'color': (() => {
+                        if (marking) {
+                          return marking.textColor;
+                        }
+                        return isToday(date) ? "var(--accent-color)" : "var(--text-primary)";
+                      })(),
+                      'border-radius': (() => {
+                        if (!marking) return '0';
+                        if (pillStart && pillEnd) {
+                          return '50%'; // Single day
+                        } else if (pillStart) {
+                          return '50% 0 0 50%'; // Start of group
+                        } else if (pillEnd) {
+                          return '0 50% 50% 0'; // End of group
+                        }
+                        return '0'; // Middle of group
+                      })(),
+                      "font-weight": isToday(date) ? "bold" : "500"
+                    }}
+                    onmouseover={(e) => {
+                      if (!marking) {
+                        e.currentTarget.style.backgroundColor = "var(--bg-secondary)";
                       }
-                      // Otherwise use theme colors
-                      return isToday(date) ? "var(--accent-color)" : "var(--text-primary)";
-                    })(),
-                    "font-weight": isToday(date) ? "bold" : "500"
-                  }}
-                  onmouseover={(e) => {
-                    const dayStyle = getDayStyle(date);
-                    if (!dayStyle['background-color'] || dayStyle['background-color'] === 'transparent') {
-                      e.currentTarget.style.backgroundColor = "var(--bg-secondary)";
-                    }
-                  }}
-                  onmouseout={(e) => {
-                    const dayStyle = getDayStyle(date);
-                    if (!dayStyle['background-color'] || dayStyle['background-color'] === 'transparent') {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }
-                  }}
-                >
-                  {date.getDate()}
-                </button>
-              ) : (
-                <div class="w-full h-full"></div>
-              )}
-            </div>
-          )}
+                    }}
+                    onmouseout={(e) => {
+                      if (!marking) {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }
+                    }}
+                  >
+                    {date.getDate()}
+                  </button>
+                ) : (
+                  <div class="w-full h-full"></div>
+                )}
+              </div>
+            );
+          }}
         </For>
       </div>
     </div>
