@@ -26,6 +26,17 @@ export default function Home() {
     buttons: [],
   });
 
+  // State for editing periods
+  const [editMode, setEditMode] = createStore<{
+    active: boolean;
+    periodId: string | null;
+    editingField: 'start' | 'end' | null;
+  }>({
+    active: false,
+    periodId: null,
+    editingField: null,
+  });
+
   // Create a resource for periods data with automatic loading states
   const [periods, { mutate: mutatePeriods, refetch }] = createResource(
     () => session()?.id, // Only fetch when user is logged in
@@ -141,22 +152,153 @@ export default function Home() {
     const periodsData = periods();
     if (!periodsData) return;
 
+    // PRIORITY: If in edit mode, handle the date selection for editing (before any other checks)
+    if (editMode.active && editMode.periodId && editMode.editingField) {
+      const periodToEdit = periodsData.find((p: Period) => p.id === editMode.periodId);
+      if (!periodToEdit) {
+        setEditMode({ active: false, periodId: null, editingField: null });
+        return;
+      }
+
+      const newDate = new Date(dateString);
+      
+      if (editMode.editingField === 'start') {
+        const currentEnd = periodToEdit.endDate ? new Date(periodToEdit.endDate) : null;
+        
+        if (currentEnd && newDate > currentEnd) {
+          setModalConfig({
+            visible: true,
+            title: 'Invalid Date',
+            message: 'Start date cannot be after the end date.',
+            buttons: [{ text: 'OK', onPress: () => {}, style: 'default' }],
+          });
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/periods', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: periodToEdit.id, startDate: dateString }),
+          });
+
+          if (response.ok) {
+            refetch();
+            setEditMode({ active: false, periodId: null, editingField: null });
+          }
+        } catch (error) {
+          console.error('Failed to update period:', error);
+        }
+      } else if (editMode.editingField === 'end') {
+        const currentStart = new Date(periodToEdit.startDate);
+        
+        if (newDate < currentStart) {
+          setModalConfig({
+            visible: true,
+            title: 'Invalid Date',
+            message: 'End date cannot be before the start date.',
+            buttons: [{ text: 'OK', onPress: () => {}, style: 'default' }],
+          });
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/periods', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: periodToEdit.id, endDate: dateString }),
+          });
+
+          if (response.ok) {
+            refetch();
+            setEditMode({ active: false, periodId: null, editingField: null });
+          }
+        } catch (error) {
+          console.error('Failed to update period:', error);
+        }
+      }
+      
+      return;
+    }
+
     // Check if this date is already part of an existing period
     const periodForDate = periodsData.find((period: Period) =>
       isDateInPeriod(dateString, period),
     );
     
     if (periodForDate) {
-      // Navigate to edit period (for now just show info)
+      const startDateObj = new Date(periodForDate.startDate);
+      const endDateObj = periodForDate.endDate ? new Date(periodForDate.endDate) : null;
+      const isOngoing = !periodForDate.endDate;
+      
       setModalConfig({
         visible: true,
-        title: 'Period Found',
-        message: `This date is part of a period from ${periodForDate.startDate} to ${periodForDate.endDate || 'ongoing'}.`,
+        title: 'Manage Period',
+        message: `Period: ${startDateObj.toLocaleDateString()} to ${endDateObj ? endDateObj.toLocaleDateString() : 'ongoing'}. What would you like to do?`,
         buttons: [
           {
-            text: 'OK',
+            text: 'Cancel',
             onPress: () => {},
+            style: 'cancel',
+          },
+          {
+            text: 'Edit Start Date',
+            onPress: () => {
+              setEditMode({ active: true, periodId: periodForDate.id, editingField: 'start' });
+              setModalConfig({
+                visible: true,
+                title: 'Edit Start Date',
+                message: 'Tap on the calendar to select a new start date.',
+                buttons: [
+                  {
+                    text: 'Cancel',
+                    onPress: () => {
+                      setEditMode({ active: false, periodId: null, editingField: null });
+                    },
+                    style: 'cancel',
+                  },
+                ],
+              });
+            },
             style: 'default',
+          },
+          ...(!isOngoing ? [{
+            text: 'Edit End Date',
+            onPress: () => {
+              setEditMode({ active: true, periodId: periodForDate.id, editingField: 'end' });
+              setModalConfig({
+                visible: true,
+                title: 'Edit End Date',
+                message: 'Tap on the calendar to select a new end date.',
+                buttons: [
+                  {
+                    text: 'Cancel',
+                    onPress: () => {
+                      setEditMode({ active: false, periodId: null, editingField: null });
+                    },
+                    style: 'cancel',
+                  },
+                ],
+              });
+            },
+            style: 'default',
+          }] : []),
+          {
+            text: 'Delete',
+            onPress: async () => {
+              try {
+                const response = await fetch(`/api/periods?id=${periodForDate.id}`, {
+                  method: 'DELETE',
+                });
+
+                if (response.ok) {
+                  refetch();
+                }
+              } catch (error) {
+                console.error('Failed to delete period:', error);
+              }
+            },
+            style: 'destructive',
           },
         ],
       });
@@ -265,6 +407,40 @@ export default function Home() {
     if (!periodsData) return {};
 
     const markedDates: Record<string, CalendarMarkedDate> = {};
+
+    // If in edit mode, only show the period being edited with border styling
+    if (editMode.active && editMode.periodId) {
+      const periodToEdit = periodsData.find((p: Period) => p.id === editMode.periodId);
+      if (periodToEdit && periodToEdit.endDate) {
+        const startDate = new Date(periodToEdit.startDate);
+        const endDate = new Date(periodToEdit.endDate);
+
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dateString = formatDate(d);
+          const isStart = formatDate(d) === periodToEdit.startDate;
+          const isEnd = formatDate(d) === periodToEdit.endDate;
+
+          markedDates[dateString] = {
+            color: '#D53F8C',
+            textColor: 'var(--text-primary)',
+            startingDay: isStart,
+            endingDay: isEnd,
+            borderOnly: true,
+          };
+        }
+      } else if (periodToEdit && !periodToEdit.endDate) {
+        // Ongoing period - just show start date
+        markedDates[periodToEdit.startDate] = {
+          color: '#D53F8C',
+          textColor: 'var(--text-primary)',
+          startingDay: true,
+          endingDay: true,
+          borderOnly: true,
+        };
+      }
+      return markedDates;
+    }
+
     const averageCycleLength = calculateAverageCycleLength(periodsData);
 
     // Mark all period days (menstrual phase)
@@ -296,13 +472,20 @@ export default function Home() {
       }
     });
 
-    // Add cycle phase markings for non-period days
+    // Add cycle phase markings for non-period days (only up to predicted date)
+    const pred = prediction();
     if (periodsData.length > 0) {
       const today = new Date();
       const startDate = new Date(today);
       startDate.setDate(startDate.getDate() - 60);
+      
+      // Only mark up to the predicted date (or 60 days forward if no prediction)
       const endDate = new Date(today);
-      endDate.setDate(endDate.getDate() + 60);
+      if (pred.predictedDate && pred.confidence !== 'insufficient') {
+        endDate.setTime(new Date(pred.predictedDate).getTime());
+      } else {
+        endDate.setDate(endDate.getDate() + 60);
+      }
 
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
         const dateString = formatDate(d);
@@ -324,7 +507,6 @@ export default function Home() {
     }
 
     // Add next period prediction marking
-    const pred = prediction();
     if (pred.predictedDate && pred.confidence !== 'insufficient') {
       const existingMarking = markedDates[pred.predictedDate];
       const isActualPeriod = existingMarking && existingMarking.color === '#D53F8C';
@@ -444,6 +626,35 @@ export default function Home() {
 
         {/* Calendar */}
         <div class="p-5">
+          <Show when={editMode.active}>
+            <div 
+              class="mb-4 p-4 rounded-lg shadow-md border flex items-center justify-between"
+              style={{
+                "background-color": "var(--bg-primary)",
+                "border-color": "var(--accent-color)",
+                "color": "var(--text-primary)"
+              }}
+            >
+              <div class="font-semibold">
+                {editMode.editingField === 'start' 
+                  ? 'Select New Start Date' 
+                  : 'Select New End Date'}
+              </div>
+              <button
+                onClick={() => setEditMode({ active: false, periodId: null, editingField: null })}
+                class="px-4 py-2 rounded-md font-medium transition-colors"
+                style={{
+                  "background-color": "var(--bg-secondary)",
+                  "color": "var(--text-primary)",
+                  "border": "1px solid var(--border-color)"
+                }}
+                onmouseover={(e) => e.currentTarget.style.opacity = "0.8"}
+                onmouseout={(e) => e.currentTarget.style.opacity = "1"}
+              >
+                Cancel Edit
+              </button>
+            </div>
+          </Show>
           <Calendar
             markedDates={getMarkedDates()}
             onDayPress={handleDatePress}

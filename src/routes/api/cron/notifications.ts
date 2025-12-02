@@ -1,8 +1,8 @@
 import { checkNotifications } from '../../../services/notificationScheduler';
 
-export async function GET(request: Request) {
+export async function GET(event: { request: Request }) {
   // Verify the request is from Vercel Cron
-  const authHeader = request.headers.get('authorization');
+  const authHeader = event.request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response('Unauthorized', { status: 401 });
   }

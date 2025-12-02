@@ -240,20 +240,24 @@ export default function Calendar(props: CalendarProps) {
             return (
                 <div class="aspect-square relative">
                 {date ? (
-                  <div class="relative w-full h-full">
+                  <div class="relative w-full h-full flex items-center justify-center">
                     <button
                       onClick={() => props.onDayPress?.(formatDate(date))}
-                      class="absolute inset-0 flex items-center justify-center text-sm font-medium transition-colors"
+                      class="flex items-center justify-center text-sm font-medium transition-colors"
                       style={{
-                        'background-color': marking ? marking.color : 'transparent',
+                        'width': marking ? '100%' : 'auto',
+                        'height': marking ? '100%' : 'auto',
+                        'min-width': !marking ? '32px' : 'auto',
+                        'min-height': !marking ? '32px' : 'auto',
+                        'background-color': marking && !marking.borderOnly ? marking.color : 'transparent',
                         'color': (() => {
-                          if (marking) {
+                          if (marking && !marking.borderOnly) {
                             return marking.textColor;
                           }
                           return isToday(date) ? "var(--accent-color)" : "var(--text-primary)";
                         })(),
                         'border-radius': (() => {
-                          if (!marking) return '0';
+                          if (!marking) return '50%';
                           if (pillStart && pillEnd) {
                             return '50%'; // Single day
                           } else if (pillStart) {
@@ -263,7 +267,21 @@ export default function Calendar(props: CalendarProps) {
                           }
                           return '0'; // Middle of group
                         })(),
-                        "font-weight": isToday(date) ? "bold" : "500"
+                        'font-weight': isToday(date) ? "bold" : "500",
+                        'box-shadow': (() => {
+                          if (marking && marking.borderOnly) {
+                            // Border-only styling for edit mode
+                            return `inset 0 0 0 2px ${marking.color}`;
+                          }
+                          if (isToday(date)) {
+                            return marking 
+                              ? 'inset 0 0 0 2px white, 0 0 0 2px rgba(0, 0, 0, 0.2)' 
+                              : '0 0 0 2px var(--accent-color)';
+                          }
+                          return 'none';
+                        })(),
+                        'position': 'relative',
+                        'z-index': isToday(date) ? '1' : '0'
                       }}
                       onmouseover={(e) => {
                         if (!marking) {

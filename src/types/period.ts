@@ -37,6 +37,7 @@ export interface CalendarMarkedDate {
   textColor: string;
   startingDay: boolean;
   endingDay: boolean;
+  borderOnly?: boolean; // Show border instead of fill
 }
 
 // Modal types
