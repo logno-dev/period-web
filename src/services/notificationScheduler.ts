@@ -5,7 +5,7 @@ async function checkNotifications() {
     const { db } = await import('../db');
     const { users, periods } = await import('../db/schema');
     const { eq } = await import('drizzle-orm');
-    const { calculateNextPeriodPrediction, getCyclePhaseForDate, formatDate } = await import('../utils/periodUtils');
+    const { calculateNextPeriodPrediction, getCyclePhaseForDate, formatDate, calculateAverageCycleLength } = await import('../utils/periodUtils');
     const { sendNotificationEmail } = await import('./notifications');
 
     // Get all users with notifications enabled
@@ -19,9 +19,11 @@ async function checkNotifications() {
 
       if (userPeriods.length < 2) continue; // Need at least 2 periods for predictions
 
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = formatDate(tomorrow);
+      const today = new Date();
+      const todayStr = formatDate(today);
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = formatDate(yesterday);
 
       // Get all email addresses for this user
       const emailAddresses = [user.email];
@@ -36,9 +38,34 @@ async function checkNotifications() {
         }
       }
 
-      // Check for ovulation notification
-      const cyclePhase = getCyclePhaseForDate(tomorrowStr, userPeriods);
-      if (cyclePhase?.phase === 'ovulation') {
+      const averageCycleLength = calculateAverageCycleLength(userPeriods);
+
+      // Check for phase change between yesterday and today
+      const yesterdayPhase = getCyclePhaseForDate(yesterdayStr, userPeriods, averageCycleLength);
+      const todayPhase = getCyclePhaseForDate(todayStr, userPeriods, averageCycleLength);
+
+      // If phase changed, send notification
+      if (todayPhase && yesterdayPhase?.phase !== todayPhase.phase) {
+        for (const email of emailAddresses) {
+          await sendNotificationEmail({
+            email,
+            type: 'phase_change',
+            phaseTransition: {
+              from: yesterdayPhase?.phase || null,
+              to: todayPhase.phase
+            }
+          });
+        }
+      }
+
+      // For legacy support: Check for ovulation notification (tomorrow)
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = formatDate(tomorrow);
+      const tomorrowPhase = getCyclePhaseForDate(tomorrowStr, userPeriods, averageCycleLength);
+      
+      // Only send if tomorrow is ovulation and today is NOT ovulation (i.e., entering ovulation tomorrow)
+      if (tomorrowPhase?.phase === 'ovulation' && todayPhase?.phase !== 'ovulation') {
         for (const email of emailAddresses) {
           await sendNotificationEmail({
             email,

@@ -16,6 +16,9 @@ import {
   calculateNextPeriodPrediction,
   getCyclePhaseForDate,
   calculateAverageCycleLength,
+  checkIfPeriodIsEarly,
+  estimateActivePeriodEndDate,
+  parseDate,
 } from "~/utils/periodUtils";
 
 export default function Home() {
@@ -183,7 +186,8 @@ export default function Home() {
       const newDate = new Date(dateString);
       
       if (editMode.editingField === 'start') {
-        const currentEnd = periodToEdit.endDate ? new Date(periodToEdit.endDate) : null;
+        // Editing start date
+        const currentEnd = periodToEdit.endDate ? parseDate(periodToEdit.endDate) : null;
         
         if (currentEnd && newDate > currentEnd) {
           showModal('Invalid Date', 'Start date cannot be after the end date.', [
@@ -207,7 +211,8 @@ export default function Home() {
           console.error('Failed to update period:', error);
         }
       } else if (editMode.editingField === 'end') {
-        const currentStart = new Date(periodToEdit.startDate);
+        // Editing end date
+        const currentStart = parseDate(periodToEdit.startDate);
         
         if (newDate < currentStart) {
           showModal('Invalid Date', 'End date cannot be before the start date.', [
@@ -241,8 +246,8 @@ export default function Home() {
     );
     
     if (periodForDate) {
-      const startDateObj = new Date(periodForDate.startDate);
-      const endDateObj = periodForDate.endDate ? new Date(periodForDate.endDate) : null;
+      const startDateObj = parseDate(periodForDate.startDate);
+      const endDateObj = periodForDate.endDate ? parseDate(periodForDate.endDate) : null;
       const isOngoing = !periodForDate.endDate;
       
       showModal(
@@ -312,9 +317,8 @@ export default function Home() {
     const activePeriod = currentPeriod();
 
     if (activePeriod) {
-      // There's an active period, ask if they want to end it on this date
-      const startDate = new Date(activePeriod.startDate);
-      const clickedDate = new Date(dateString);
+      const startDate = parseDate(activePeriod.startDate);
+      const clickedDate = parseDate(dateString);
 
       if (clickedDate < startDate) {
         showModal(
@@ -366,7 +370,7 @@ export default function Home() {
       );
     } else {
       // No active period, ask if they want to start one on this date
-      const clickedDate = new Date(dateString);
+      const clickedDate = parseDate(dateString);
       showModal(
         'Start Period',
         `Do you want to start a new period on ${clickedDate.toLocaleDateString()}?`,
@@ -402,6 +406,14 @@ export default function Home() {
     }
   };
 
+  // Helper function to convert hex color to rgba with opacity
+  const hexToRgba = (hex: string, opacity: number): string => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+
   const getMarkedDates = createMemo(() => {
     const periodsData = periods();
     if (!periodsData) return {};
@@ -412,8 +424,8 @@ export default function Home() {
     if (editMode.active && editMode.periodId) {
       const periodToEdit = periodsData.find((p: Period) => p.id === editMode.periodId);
       if (periodToEdit && periodToEdit.endDate) {
-        const startDate = new Date(periodToEdit.startDate);
-        const endDate = new Date(periodToEdit.endDate);
+        const startDate = parseDate(periodToEdit.startDate);
+        const endDate = parseDate(periodToEdit.endDate);
 
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
           const dateString = formatDate(d);
@@ -446,8 +458,8 @@ export default function Home() {
     // Mark all period days (menstrual phase)
     periodsData.forEach((period: Period) => {
       if (period.endDate) {
-        const startDate = new Date(period.startDate);
-        const endDate = new Date(period.endDate);
+        const startDate = parseDate(period.startDate);
+        const endDate = parseDate(period.endDate);
 
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
           const dateString = formatDate(d);
@@ -462,13 +474,29 @@ export default function Home() {
           };
         }
       } else {
-        // Active period (single day)
-        markedDates[period.startDate] = {
-          color: '#D53F8C',
-          textColor: 'white',
-          startingDay: true,
-          endingDay: true,
-        };
+        // Active period - estimate end date and mark all days
+        const estimatedEndDate = estimateActivePeriodEndDate(period, periodsData);
+        const startDate = parseDate(period.startDate);
+        const endDate = parseDate(estimatedEndDate);
+        const todayDate = new Date();
+        todayDate.setHours(0, 0, 0, 0);
+        const today = formatDate(todayDate);
+
+        // Mark all days from start to estimated end
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dateString = formatDate(new Date(d));
+          const isStart = dateString === period.startDate;
+          const isEnd = dateString === estimatedEndDate;
+          const isPastOrToday = dateString <= today;
+          const opacity = isPastOrToday ? 1 : 0.5;
+
+          markedDates[dateString] = {
+            color: opacity < 1 ? hexToRgba('#D53F8C', opacity) : '#D53F8C',
+            textColor: 'white',
+            startingDay: isStart,
+            endingDay: isEnd,
+          };
+        }
       }
     });
 
@@ -482,7 +510,7 @@ export default function Home() {
       // Only mark up to the predicted date (or 60 days forward if no prediction)
       const endDate = new Date(today);
       if (pred.predictedDate && pred.confidence !== 'insufficient') {
-        endDate.setTime(new Date(pred.predictedDate).getTime());
+        endDate.setTime(parseDate(pred.predictedDate).getTime());
       } else {
         endDate.setDate(endDate.getDate() + 60);
       }
@@ -495,9 +523,10 @@ export default function Home() {
         const phaseInfo = getCyclePhaseForDate(dateString, periodsData, averageCycleLength);
         if (phaseInfo && phaseInfo.phase !== 'menstrual') {
           const textColor = phaseInfo.phase === 'follicular' ? '#333' : 'white';
+          const opacity = phaseInfo.isEstimated ? 0.5 : 1;
 
           markedDates[dateString] = {
-            color: phaseInfo.color,
+            color: opacity < 1 ? hexToRgba(phaseInfo.color, opacity) : phaseInfo.color,
             textColor: textColor,
             startingDay: true,
             endingDay: true,
@@ -548,7 +577,7 @@ export default function Home() {
     }
 
     const formatPredictionDate = (dateString: string) => {
-      const date = new Date(dateString);
+      const date = parseDate(dateString);
       return date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',

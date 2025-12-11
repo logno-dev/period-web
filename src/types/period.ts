@@ -22,6 +22,7 @@ export interface CyclePhaseInfo {
   phase: CyclePhase;
   dayInCycle: number;
   color: string;
+  isEstimated?: boolean; // True if based on an active period with estimated end date
 }
 
 // Prediction types

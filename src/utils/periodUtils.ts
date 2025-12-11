@@ -47,12 +47,41 @@ export const calculateAveragePeriodLength = (periods: Period[]): number => {
   );
 };
 
+/**
+ * Estimate when an active period will end based on average period length
+ */
+export const estimateActivePeriodEndDate = (
+  activePeriod: Period,
+  periods: Period[],
+): string => {
+  const averagePeriodLength = calculateAveragePeriodLength(periods);
+  const startDate = parseDate(activePeriod.startDate);
+  const estimatedEndDate = new Date(startDate);
+  estimatedEndDate.setDate(estimatedEndDate.getDate() + averagePeriodLength - 1);
+  return formatDate(estimatedEndDate);
+};
+
 export const getCyclePhaseForDate = (
   date: string,
   periods: Period[],
   averageCycleLength: number = 28,
 ): CyclePhaseInfo | null => {
-  const completedPeriods = periods
+  const checkDate = parseDate(date);
+  
+  // Check if there's an active period (for estimation tracking)
+  const hasActivePeriod = periods.some(p => !p.endDate);
+  
+  // Create a working set of periods with estimated end dates for active periods
+  const workingPeriods = periods.map(p => {
+    if (!p.endDate) {
+      // Estimate end date for active period
+      const estimatedEndDate = estimateActivePeriodEndDate(p, periods);
+      return { ...p, endDate: estimatedEndDate, isEstimated: true };
+    }
+    return { ...p, isEstimated: false };
+  });
+
+  const completedPeriods = workingPeriods
     .filter(p => p.endDate)
     .sort(
       (a, b) =>
@@ -61,11 +90,15 @@ export const getCyclePhaseForDate = (
 
   if (completedPeriods.length === 0) return null;
 
-  const checkDate = parseDate(date);
-
-  // PRIORITY 1: Check if date is during an actual period (menstrual phase)
-  // This takes absolute priority over all other phases
-  const periodForDate = periods.find(period => isDateInPeriod(date, period));
+  // PRIORITY 1: Check if date is during an actual/estimated period (menstrual phase)
+  const periodForDate = workingPeriods.find(period => {
+    if (!period.endDate) return false;
+    const checkDate = parseDate(date);
+    const startDate = parseDate(period.startDate);
+    const endDate = parseDate(period.endDate);
+    return checkDate >= startDate && checkDate <= endDate;
+  });
+  
   if (periodForDate) {
     const startDate = parseDate(periodForDate.startDate);
     const dayInPeriod =
@@ -76,14 +109,15 @@ export const getCyclePhaseForDate = (
       phase: 'menstrual',
       dayInCycle: dayInPeriod,
       color: '#D53F8C', // Dark pink - highest priority
+      isEstimated: periodForDate.isEstimated,
     };
   }
 
-  // Find the most recent completed period to calculate cycle position
-  let referencePeriod: Period | null = null;
-  let nextPeriod: Period | null = null;
+  // Find the most recent completed/estimated period to calculate cycle position
+  let referencePeriod: (Period & { isEstimated?: boolean }) | null = null;
+  let nextPeriod: (Period & { isEstimated?: boolean }) | null = null;
 
-  // Find reference period (most recent completed period before this date)
+  // Find reference period (most recent period before this date)
   for (let i = completedPeriods.length - 1; i >= 0; i--) {
     const period = completedPeriods[i];
     const periodStart = parseDate(period.startDate);
@@ -98,6 +132,11 @@ export const getCyclePhaseForDate = (
   }
 
   if (!referencePeriod) return null;
+  
+  // Track if this calculation is based on an estimated period
+  // Only mark as estimated if the REFERENCE period (the one we're calculating FROM) is estimated
+  // If we have a next period, we're in a completed cycle, so use actual data
+  const isBasedOnEstimation = nextPeriod ? false : (referencePeriod.isEstimated ?? false);
 
   // Calculate actual cycle length if we have a next period
   let actualCycleLength = averageCycleLength;
@@ -139,6 +178,7 @@ export const getCyclePhaseForDate = (
       phase: 'ovulation',
       dayInCycle,
       color: '#3182CE', // Blue
+      isEstimated: isBasedOnEstimation,
     };
   } else if (dayInCycle > averagePeriodLength && dayInCycle < ovulationStart) {
     // Follicular phase: After menstruation, before ovulation
@@ -146,6 +186,7 @@ export const getCyclePhaseForDate = (
       phase: 'follicular',
       dayInCycle,
       color: '#FBB6CE', // Light Pink
+      isEstimated: isBasedOnEstimation,
     };
   } else if (dayInCycle >= lutealStart) {
     // Luteal phase: After ovulation, before next period
@@ -153,6 +194,7 @@ export const getCyclePhaseForDate = (
       phase: 'luteal',
       dayInCycle,
       color: '#805AD5', // Purple
+      isEstimated: isBasedOnEstimation,
     };
   }
 
@@ -161,6 +203,7 @@ export const getCyclePhaseForDate = (
     phase: 'follicular',
     dayInCycle,
     color: '#FBB6CE', // Light Pink
+    isEstimated: isBasedOnEstimation,
   };
 };
 
@@ -224,18 +267,20 @@ export const calculatePeriodStats = (periods: Period[]): PeriodStats[] => {
 export const calculateNextPeriodPrediction = (
   periods: Period[],
 ): PeriodPrediction => {
-  const completedPeriods = periods
-    .filter(p => p.endDate)
-    .sort(
-      (a, b) =>
-        parseDate(a.startDate).getTime() - parseDate(b.startDate).getTime(),
-    );
+  // Sort all periods by start date
+  const sortedPeriods = [...periods].sort(
+    (a, b) =>
+      parseDate(a.startDate).getTime() - parseDate(b.startDate).getTime(),
+  );
 
+  // We need at least 2 completed periods to calculate cycle length
+  const completedPeriods = sortedPeriods.filter(p => p.endDate);
+  
   if (completedPeriods.length < 2) {
     return { predictedDate: null, daysUntil: null, confidence: 'insufficient' };
   }
 
-  // Calculate average cycle length
+  // Calculate average cycle length using completed periods
   const cycleLengths: number[] = [];
   for (let i = 1; i < completedPeriods.length; i++) {
     const previousPeriod = completedPeriods[i - 1];
@@ -250,12 +295,12 @@ export const calculateNextPeriodPrediction = (
   const averageCycleLength =
     cycleLengths.reduce((sum, length) => sum + length, 0) / cycleLengths.length;
 
-  // Get the last period start date
-  const lastPeriod = completedPeriods[completedPeriods.length - 1];
-  const lastPeriodStart = parseDate(lastPeriod.startDate);
+  // Get the most recent period (could be active or completed)
+  const mostRecentPeriod = sortedPeriods[sortedPeriods.length - 1];
+  const mostRecentStart = parseDate(mostRecentPeriod.startDate);
 
-  // Calculate predicted next period date
-  const predictedDate = new Date(lastPeriodStart);
+  // Calculate predicted next period date based on the most recent period
+  const predictedDate = new Date(mostRecentStart);
   predictedDate.setDate(
     predictedDate.getDate() + Math.round(averageCycleLength),
   );
@@ -291,4 +336,53 @@ export const calculateNextPeriodPrediction = (
     daysUntil,
     confidence,
   };
+};
+
+/**
+ * Check if current period started before the predicted date
+ * Returns number of days early, or null if not early or no prediction
+ */
+export const checkIfPeriodIsEarly = (
+  periods: Period[],
+  currentPeriod: Period | null,
+): { isEarly: boolean; daysEarly: number | null; predictedDate: string | null } => {
+  if (!currentPeriod) {
+    return { isEarly: false, daysEarly: null, predictedDate: null };
+  }
+
+  // Get completed periods (excluding the current one)
+  const completedPeriods = periods
+    .filter(p => p.endDate && p.id !== currentPeriod.id)
+    .sort(
+      (a, b) =>
+        parseDate(a.startDate).getTime() - parseDate(b.startDate).getTime(),
+    );
+
+  if (completedPeriods.length < 2) {
+    return { isEarly: false, daysEarly: null, predictedDate: null };
+  }
+
+  // Calculate what the prediction would have been before this period started
+  const prediction = calculateNextPeriodPrediction(completedPeriods);
+  
+  if (!prediction.predictedDate || prediction.confidence === 'insufficient') {
+    return { isEarly: false, daysEarly: null, predictedDate: null };
+  }
+
+  const predictedDate = parseDate(prediction.predictedDate);
+  const actualStartDate = parseDate(currentPeriod.startDate);
+
+  // If actual start is before predicted, calculate how many days early
+  if (actualStartDate < predictedDate) {
+    const daysEarly = Math.ceil(
+      (predictedDate.getTime() - actualStartDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    return { 
+      isEarly: true, 
+      daysEarly, 
+      predictedDate: prediction.predictedDate 
+    };
+  }
+
+  return { isEarly: false, daysEarly: null, predictedDate: prediction.predictedDate };
 };

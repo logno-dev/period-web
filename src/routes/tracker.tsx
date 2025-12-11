@@ -14,6 +14,8 @@ import {
   calculateNextPeriodPrediction,
   getCyclePhaseForDate,
   calculateAverageCycleLength,
+  checkIfPeriodIsEarly,
+  estimateActivePeriodEndDate,
 } from "~/utils/periodUtils";
 
 export default function Tracker() {
@@ -86,6 +88,15 @@ export default function Tracker() {
       };
     }
     return calculateNextPeriodPrediction(periodsData);
+  });
+
+  const earlyPeriodInfo = createMemo(() => {
+    const periodsData = periods();
+    const current = currentPeriod();
+    if (!periodsData || !current) {
+      return { isEarly: false, daysEarly: null, predictedDate: null };
+    }
+    return checkIfPeriodIsEarly(periodsData, current);
   });
 
   // Period management functions
@@ -419,6 +430,14 @@ export default function Tracker() {
     }
   };
 
+  // Helper function to convert hex color to rgba with opacity
+  const hexToRgba = (hex: string, opacity: number): string => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+
   const getMarkedDates = createMemo(() => {
     const periodsData = periods();
     if (!periodsData) return {};
@@ -463,6 +482,7 @@ export default function Tracker() {
     // Mark all period days (menstrual phase)
     periodsData.forEach((period: Period) => {
       if (period.endDate) {
+        // Completed period
         const startDate = new Date(period.startDate);
         const endDate = new Date(period.endDate);
 
@@ -479,12 +499,36 @@ export default function Tracker() {
           };
         }
       } else {
-        markedDates[period.startDate] = {
-          color: '#D53F8C',
-          textColor: 'white',
-          startingDay: true,
-          endingDay: true,
-        };
+        // Active period - estimate end date and mark all days
+        const estimatedEndDate = estimateActivePeriodEndDate(period, periodsData);
+        const startDate = new Date(period.startDate);
+        const endDate = new Date(estimatedEndDate);
+        const today = formatDate(new Date());
+
+        console.log('[Active Period Debug]', {
+          periodStart: period.startDate,
+          estimatedEnd: estimatedEndDate,
+          today: today,
+        });
+
+        // Mark all days from start to estimated end
+        let dayCount = 0;
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dateString = formatDate(new Date(d));
+          const isStart = dateString === period.startDate;
+          const isEnd = dateString === estimatedEndDate;
+          const isPastOrToday = dateString <= today;
+          const opacity = isPastOrToday ? 1 : 0.5;
+
+          markedDates[dateString] = {
+            color: opacity < 1 ? hexToRgba('#D53F8C', opacity) : '#D53F8C',
+            textColor: 'white',
+            startingDay: isStart,
+            endingDay: isEnd,
+          };
+          dayCount++;
+        }
+        console.log('[Active Period Debug] Marked', dayCount, 'days');
       }
     });
 
@@ -503,6 +547,7 @@ export default function Tracker() {
         endDate.setDate(endDate.getDate() + 60);
       }
 
+      let processedCount = 0;
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
         const dateString = formatDate(d);
 
@@ -511,15 +556,22 @@ export default function Tracker() {
         const phaseInfo = getCyclePhaseForDate(dateString, periodsData, averageCycleLength);
         if (phaseInfo && phaseInfo.phase !== 'menstrual') {
           const textColor = phaseInfo.phase === 'follicular' ? '#333' : 'white';
+          const opacity = phaseInfo.isEstimated ? 0.5 : 1;
+
+          if (phaseInfo.isEstimated) {
+            console.log('[Tracker] Date:', dateString, 'Phase:', phaseInfo.phase, 'isEstimated:', phaseInfo.isEstimated, 'opacity:', opacity, 'will use color:', opacity < 1 ? 'RGBA' : 'HEX');
+          }
 
           markedDates[dateString] = {
-            color: phaseInfo.color,
+            color: opacity < 1 ? hexToRgba(phaseInfo.color, opacity) : phaseInfo.color,
             textColor: textColor,
             startingDay: true,
             endingDay: true,
           };
+          processedCount++;
         }
       }
+      console.log('[Tracker] Processed', processedCount, 'phase days');
     }
 
     // Add next period prediction marking
@@ -539,6 +591,42 @@ export default function Tracker() {
 
     return markedDates;
   });
+
+  const renderEarlyWarningCard = () => {
+    const earlyInfo = earlyPeriodInfo();
+    
+    if (!earlyInfo.isEarly || !earlyInfo.daysEarly || !earlyInfo.predictedDate) {
+      return null;
+    }
+
+    const formatPredictionDate = (dateString: string) => {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    };
+
+    return (
+      <div class="bg-orange-50 rounded-lg shadow-md p-4 mx-5 mb-4 border-l-4 border-orange-500">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="text-base font-bold text-gray-900">Period Started Early</h3>
+          <span class="text-xs font-semibold text-orange-600">
+            ⚠️ Early
+          </span>
+        </div>
+        <div class="text-center">
+          <div class="text-sm text-gray-700 mb-2">
+            Expected: <span class="font-semibold">{formatPredictionDate(earlyInfo.predictedDate)}</span>
+          </div>
+          <div class="text-lg font-bold text-orange-600">
+            Started {earlyInfo.daysEarly} day{earlyInfo.daysEarly !== 1 ? 's' : ''} early
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderPredictionCard = () => {
     const pred = prediction();
@@ -585,10 +673,13 @@ export default function Tracker() {
       }
     };
 
+    const current = currentPeriod();
+    const title = current ? 'Following Period Prediction' : 'Next Period Prediction';
+
     return (
       <div class="bg-white rounded-lg shadow-md p-4 mx-5 mb-4 border-l-4 border-pink-500">
         <div class="flex justify-between items-center mb-2">
-          <h3 class="text-base font-bold text-gray-900">Next Period Prediction</h3>
+          <h3 class="text-base font-bold text-gray-900">{title}</h3>
           <span class="text-xs font-semibold" style={{ color: getConfidenceColor() }}>
             {pred.confidence} confidence
           </span>
@@ -647,6 +738,9 @@ export default function Tracker() {
       </Show>
 
       <Show when={!periods.loading && !periods.error}>
+        {/* Early Period Warning (if applicable) */}
+        {renderEarlyWarningCard()}
+        
         {/* Prediction Card */}
         {renderPredictionCard()}
 
