@@ -169,14 +169,32 @@ export const getCyclePhaseForDate = (
 
   // Calculate phases based on medical research and user's actual data:
 
-  // Ovulation: Typically occurs 12-16 days before next period
-  // More accurate: 14 days before next period (luteal phase is more consistent)
-  const ovulationStart = Math.max(1, actualCycleLength - 16);
-  const ovulationEnd = Math.max(1, actualCycleLength - 12);
+  // Luteal phase: Typically 12-14 days, more consistent than follicular phase
+  // Starts right after ovulation and lasts until next period
+  const lutealStart = Math.max(1, Math.round(actualCycleLength - 12));
+  
+  // Ovulation: Fertile window is typically 5-6 days
+  // Ovulation occurs around 14 days before next period, fertile window includes days before
+  const ovulationEnd = lutealStart - 1;
+  const ovulationStart = Math.max(1, ovulationEnd - 5);
 
-  // Luteal phase: From after ovulation until next period
-  // Typically 12-14 days, more consistent than follicular phase
-  const lutealStart = ovulationEnd + 1;
+  // Debug logging - log ALL phase calculations for debugging
+  console.log('[Phase Debug]', {
+    date,
+    dayInCycle,
+    actualPeriodLength,
+    actualCycleLength,
+    ovulationStart,
+    ovulationEnd,
+    lutealStart,
+    referencePeriod: referencePeriod.startDate,
+    nextPeriod: nextPeriod?.startDate,
+    conditions: {
+      isFollicular: `${dayInCycle} > ${actualPeriodLength} && ${dayInCycle} < ${ovulationStart} = ${dayInCycle > actualPeriodLength && dayInCycle < ovulationStart}`,
+      isOvulation: `${dayInCycle} >= ${ovulationStart} && ${dayInCycle} <= ${ovulationEnd} = ${dayInCycle >= ovulationStart && dayInCycle <= ovulationEnd}`,
+      isLuteal: `${dayInCycle} >= ${lutealStart} = ${dayInCycle >= lutealStart}`,
+    }
+  });
 
   // Determine phase based on day in cycle with medical accuracy
   // Check phases in order: menstrual (already checked), follicular, ovulation, luteal
@@ -208,6 +226,13 @@ export const getCyclePhaseForDate = (
   }
 
   // Default to follicular if we can't determine (should only happen for days after period but not reaching ovulation)
+  console.log('[Phase Debug] FALLTHROUGH to follicular', {
+    date,
+    dayInCycle,
+    actualPeriodLength,
+    ovulationStart,
+    lutealStart,
+  });
   return {
     phase: 'follicular',
     dayInCycle,
