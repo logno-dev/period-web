@@ -157,8 +157,15 @@ export const getCyclePhaseForDate = (
   // Use actual cycle length for this specific cycle, or average if no next period
   const dayInCycle = daysSinceStart + 1; // +1 because day 1 is the start of period
 
-  // Calculate average period length from user's data
-  const averagePeriodLength = calculateAveragePeriodLength(periods);
+  // Calculate actual period length for this specific reference period
+  // Use the actual length of the reference period, or fall back to average
+  let actualPeriodLength = calculateAveragePeriodLength(periods);
+  if (referencePeriod.endDate) {
+    actualPeriodLength = calculateDaysBetween(
+      referencePeriod.startDate,
+      referencePeriod.endDate
+    );
+  }
 
   // Calculate phases based on medical research and user's actual data:
 
@@ -172,20 +179,22 @@ export const getCyclePhaseForDate = (
   const lutealStart = ovulationEnd + 1;
 
   // Determine phase based on day in cycle with medical accuracy
-  if (dayInCycle >= ovulationStart && dayInCycle <= ovulationEnd) {
-    // Ovulation window: 12-16 days before next period
-    return {
-      phase: 'ovulation',
-      dayInCycle,
-      color: '#3182CE', // Blue
-      isEstimated: isBasedOnEstimation,
-    };
-  } else if (dayInCycle > averagePeriodLength && dayInCycle < ovulationStart) {
+  // Check phases in order: menstrual (already checked), follicular, ovulation, luteal
+  
+  if (dayInCycle > actualPeriodLength && dayInCycle < ovulationStart) {
     // Follicular phase: After menstruation, before ovulation
     return {
       phase: 'follicular',
       dayInCycle,
       color: '#FBB6CE', // Light Pink
+      isEstimated: isBasedOnEstimation,
+    };
+  } else if (dayInCycle >= ovulationStart && dayInCycle <= ovulationEnd) {
+    // Ovulation window: 12-16 days before next period
+    return {
+      phase: 'ovulation',
+      dayInCycle,
+      color: '#3182CE', // Blue
       isEstimated: isBasedOnEstimation,
     };
   } else if (dayInCycle >= lutealStart) {
@@ -198,7 +207,7 @@ export const getCyclePhaseForDate = (
     };
   }
 
-  // Default to follicular if we can't determine (early cycle)
+  // Default to follicular if we can't determine (should only happen for days after period but not reaching ovulation)
   return {
     phase: 'follicular',
     dayInCycle,
