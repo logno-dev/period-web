@@ -173,10 +173,10 @@ export const getCyclePhaseForDate = (
   // Starts right after ovulation and lasts until next period
   const lutealStart = Math.max(1, Math.round(actualCycleLength - 12));
   
-  // Ovulation: Fertile window is typically 5-6 days
-  // Ovulation occurs around 14 days before next period, fertile window includes days before
+  // Ovulation: Peak fertility window is typically 3-4 days around ovulation
+  // Ovulation occurs around 12-14 days before next period
   const ovulationEnd = lutealStart - 1;
-  const ovulationStart = Math.max(1, ovulationEnd - 5);
+  const ovulationStart = Math.max(actualPeriodLength + 1, ovulationEnd - 3);
 
   // Debug logging - log ALL phase calculations for debugging
   console.log('[Phase Debug]', {
