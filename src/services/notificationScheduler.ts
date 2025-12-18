@@ -19,9 +19,13 @@ async function checkNotifications() {
 
       if (userPeriods.length < 2) continue; // Need at least 2 periods for predictions
 
+      // Use local timezone dates to match what user sees in their calendar
+      // The formatDate function creates dates at midnight in the local timezone
       const today = new Date();
+      today.setHours(0, 0, 0, 0);
       const todayStr = formatDate(today);
-      const yesterday = new Date();
+      
+      const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = formatDate(yesterday);
 
@@ -59,7 +63,7 @@ async function checkNotifications() {
       }
 
       // For legacy support: Check for ovulation notification (tomorrow)
-      const tomorrow = new Date();
+      const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = formatDate(tomorrow);
       const tomorrowPhase = getCyclePhaseForDate(tomorrowStr, userPeriods, averageCycleLength);
