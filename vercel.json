@@ -2,8 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/notifications",
-      "schedule": "0 9 * * *",
-      "timezone": "America/Los_Angeles"
+      "schedule": "0 * * * *"
     }
   ]
 }

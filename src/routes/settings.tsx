@@ -7,6 +7,7 @@ export default function Settings() {
   const { session } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = createSignal(true);
   const [notificationEmails, setNotificationEmails] = createSignal<string[]>([]);
+  const [timezone, setTimezone] = createSignal("America/Los_Angeles");
   const [newEmail, setNewEmail] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [message, setMessage] = createSignal("");
@@ -21,6 +22,7 @@ export default function Settings() {
         const data = await response.json();
         setNotificationsEnabled(data.notificationsEnabled);
         setNotificationEmails(data.notificationEmails || []);
+        setTimezone(data.timezone || "America/Los_Angeles");
         return data;
       }
       return null;
@@ -40,7 +42,8 @@ export default function Settings() {
         body: JSON.stringify({
           userId: session()?.id,
           notificationsEnabled: notificationsEnabled(),
-          notificationEmails: notificationEmails()
+          notificationEmails: notificationEmails(),
+          timezone: timezone()
         })
       });
 
@@ -126,6 +129,62 @@ export default function Settings() {
                   <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                 </label>
               </div>
+            </div>
+
+            {/* Timezone Setting */}
+            <div class="p-6 rounded-lg" style={{"background-color": "var(--bg-secondary)"}}>
+              <h3 class="text-lg font-medium mb-4" style={{"color": "var(--text-primary)"}}>
+                Timezone
+              </h3>
+              <p class="text-sm mb-4" style={{"color": "var(--text-secondary)"}}>
+                Set your timezone for accurate predictions and notifications
+              </p>
+              <select
+                value={timezone()}
+                onChange={(e) => setTimezone(e.target.value)}
+                class="w-full px-3 py-2 border rounded-md"
+                style={{
+                  "background-color": "var(--bg-primary)",
+                  "border-color": "var(--border-color)",
+                  "color": "var(--text-primary)"
+                }}
+              >
+                <optgroup label="US & Canada">
+                  <option value="America/New_York">Eastern Time</option>
+                  <option value="America/Chicago">Central Time</option>
+                  <option value="America/Denver">Mountain Time</option>
+                  <option value="America/Phoenix">Arizona</option>
+                  <option value="America/Los_Angeles">Pacific Time</option>
+                  <option value="America/Anchorage">Alaska</option>
+                  <option value="Pacific/Honolulu">Hawaii</option>
+                </optgroup>
+                <optgroup label="Europe">
+                  <option value="Europe/London">London (GMT)</option>
+                  <option value="Europe/Paris">Paris (CET)</option>
+                  <option value="Europe/Berlin">Berlin (CET)</option>
+                  <option value="Europe/Rome">Rome (CET)</option>
+                  <option value="Europe/Madrid">Madrid (CET)</option>
+                  <option value="Europe/Athens">Athens (EET)</option>
+                </optgroup>
+                <optgroup label="Asia">
+                  <option value="Asia/Dubai">Dubai</option>
+                  <option value="Asia/Kolkata">India</option>
+                  <option value="Asia/Bangkok">Bangkok</option>
+                  <option value="Asia/Singapore">Singapore</option>
+                  <option value="Asia/Hong_Kong">Hong Kong</option>
+                  <option value="Asia/Tokyo">Tokyo</option>
+                  <option value="Asia/Seoul">Seoul</option>
+                </optgroup>
+                <optgroup label="Australia & Pacific">
+                  <option value="Australia/Sydney">Sydney</option>
+                  <option value="Australia/Melbourne">Melbourne</option>
+                  <option value="Australia/Perth">Perth</option>
+                  <option value="Pacific/Auckland">Auckland</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="UTC">UTC</option>
+                </optgroup>
+              </select>
             </div>
 
             {/* Additional Email Addresses */}

@@ -19,9 +19,21 @@ async function checkNotifications() {
 
       if (userPeriods.length < 2) continue; // Need at least 2 periods for predictions
 
-      // Use local timezone dates to match what user sees in their calendar
-      // The formatDate function creates dates at midnight in the local timezone
-      const today = new Date();
+      // Get current time in user's timezone
+      const userTimezone = user.timezone || 'America/Los_Angeles';
+      const now = new Date();
+      const hourInUserTz = parseInt(now.toLocaleString('en-US', { 
+        timeZone: userTimezone, 
+        hour: 'numeric', 
+        hour12: false 
+      }));
+      
+      // Only send notifications at 9 AM in the user's timezone
+      if (hourInUserTz !== 9) continue;
+
+      // Get current date in user's timezone
+      const nowInUserTz = new Date().toLocaleString('en-US', { timeZone: userTimezone });
+      const today = new Date(nowInUserTz);
       today.setHours(0, 0, 0, 0);
       const todayStr = formatDate(today);
       

@@ -27,7 +27,8 @@ export async function GET() {
 
     return json({
       notificationsEnabled: userData.notificationsEnabled,
-      notificationEmails
+      notificationEmails,
+      timezone: userData.timezone || "America/Los_Angeles"
     });
   } catch (error) {
     console.error("Error fetching user settings:", error);
@@ -43,7 +44,7 @@ export async function POST(event: { request: Request }) {
 
   try {
     const body = await event.request.json();
-    const { notificationsEnabled, notificationEmails } = body;
+    const { notificationsEnabled, notificationEmails, timezone } = body;
 
     // Validate email addresses
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -59,10 +60,16 @@ export async function POST(event: { request: Request }) {
       }
     }
 
+    // Validate timezone (basic check - should be a string)
+    if (timezone && typeof timezone !== 'string') {
+      return new Response("Invalid timezone format", { status: 400 });
+    }
+
     await db.update(users)
       .set({
         notificationsEnabled: notificationsEnabled,
         notificationEmails: notificationEmails ? JSON.stringify(notificationEmails) : null,
+        timezone: timezone || "America/Los_Angeles",
         updatedAt: new Date()
       })
       .where(eq(users.id, session.id));
