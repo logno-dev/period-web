@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1a460037-0c22-4998-90d3-bb6eaf9a8e91",
-  "prevId": "2b59ab4d-fcd8-45fd-954c-e265431c657d",
+  "id": "e870d2c2-e6ed-47e4-ae13-14c0fa027d7c",
+  "prevId": "1a460037-0c22-4998-90d3-bb6eaf9a8e91",
   "tables": {
     "periods": {
       "name": "periods",
@@ -41,7 +41,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'\"2025-12-18T21:28:31.858Z\"'"
+          "default": "'\"2025-12-18T22:30:08.096Z\"'"
         },
         "updated_at": {
           "name": "updated_at",
@@ -49,7 +49,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'\"2025-12-18T21:28:31.858Z\"'"
+          "default": "'\"2025-12-18T22:30:08.096Z\"'"
         }
       },
       "indexes": {},
@@ -125,7 +125,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'\"2025-12-18T21:28:31.858Z\"'"
+          "default": "'\"2025-12-18T22:30:08.095Z\"'"
         },
         "updated_at": {
           "name": "updated_at",
@@ -133,7 +133,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'\"2025-12-18T21:28:31.858Z\"'"
+          "default": "'\"2025-12-18T22:30:08.095Z\"'"
         }
       },
       "indexes": {

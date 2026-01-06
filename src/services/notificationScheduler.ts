@@ -31,15 +31,26 @@ async function checkNotifications() {
       // Only send notifications at 9 AM in the user's timezone
       if (hourInUserTz !== 9) continue;
 
-      // Get current date in user's timezone
-      const nowInUserTz = new Date().toLocaleString('en-US', { timeZone: userTimezone });
-      const today = new Date(nowInUserTz);
-      today.setHours(0, 0, 0, 0);
-      const todayStr = formatDate(today);
+      // Get current date in user's timezone as YYYY-MM-DD string
+      const formatter = new Intl.DateTimeFormat('en-CA', { 
+        timeZone: userTimezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const todayStr = formatter.format(new Date());
       
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = formatDate(yesterday);
+      // Parse today's date and calculate yesterday and tomorrow
+      const [year, month, day] = todayStr.split('-').map(Number);
+      const todayDate = new Date(year, month - 1, day);
+      
+      const yesterdayDate = new Date(todayDate);
+      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      const yesterdayStr = formatDate(yesterdayDate);
+      
+      const tomorrowDate = new Date(todayDate);
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrowStr = formatDate(tomorrowDate);
 
       // Get all email addresses for this user
       const emailAddresses = [user.email];
@@ -75,9 +86,6 @@ async function checkNotifications() {
       }
 
       // For legacy support: Check for ovulation notification (tomorrow)
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = formatDate(tomorrow);
       const tomorrowPhase = getCyclePhaseForDate(tomorrowStr, userPeriods, averageCycleLength);
       
       // Only send if tomorrow is ovulation and today is NOT ovulation (i.e., entering ovulation tomorrow)

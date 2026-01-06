@@ -8,13 +8,14 @@ interface User {
   password?: string;
 }
 
-export async function createUser(data: Pick<User, "email" | "password">) {
+export async function createUser(data: Pick<User, "email" | "password"> & { timezone?: string }) {
   const now = new Date();
   const result = await db
     .insert(users)
     .values({
       email: data.email,
       password: data.password,
+      timezone: data.timezone || "America/Los_Angeles",
       createdAt: now,
       updatedAt: now,
     })

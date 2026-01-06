@@ -5,11 +5,19 @@ export const generateId = (): string => {
 };
 
 export const formatDate = (date: Date): string => {
-  return date.toISOString().split('T')[0];
+  // Format as YYYY-MM-DD in local time to avoid timezone shifts
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 export const parseDate = (dateString: string): Date => {
-  return new Date(dateString + 'T00:00:00');
+  // Parse date in local time zone to match how calendar creates dates
+  // This ensures consistency: new Date(2026, 0, 4) and parseDate('2026-01-04') 
+  // both represent January 4th in the user's local timezone
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
 export const calculateDaysBetween = (

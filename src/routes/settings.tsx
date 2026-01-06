@@ -20,9 +20,11 @@ export default function Settings() {
       const response = await fetch(`/api/user-settings?userId=${userId}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('Loaded user settings:', data);
         setNotificationsEnabled(data.notificationsEnabled);
         setNotificationEmails(data.notificationEmails || []);
         setTimezone(data.timezone || "America/Los_Angeles");
+        console.log('Timezone set to:', data.timezone || "America/Los_Angeles");
         return data;
       }
       return null;
@@ -36,24 +38,32 @@ export default function Settings() {
     setMessage("");
     
     try {
+      const payload = {
+        userId: session()?.id,
+        notificationsEnabled: notificationsEnabled(),
+        notificationEmails: notificationEmails(),
+        timezone: timezone()
+      };
+      console.log('Saving settings:', payload);
+      
       const response = await fetch("/api/user-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: session()?.id,
-          notificationsEnabled: notificationsEnabled(),
-          notificationEmails: notificationEmails(),
-          timezone: timezone()
-        })
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
+        const result = await response.json();
+        console.log('Save response:', result);
         setMessage("Settings saved successfully!");
         setTimeout(() => setMessage(""), 3000);
       } else {
+        const errorText = await response.text();
+        console.error('Save failed:', errorText);
         setMessage("Failed to save settings");
       }
     } catch (error) {
+      console.error('Save error:', error);
       setMessage("Error saving settings");
     } finally {
       setSaving(false);
