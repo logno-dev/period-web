@@ -1,4 +1,4 @@
-import { createSignal, createMemo, For } from "solid-js";
+import { createSignal, createMemo, For, Show } from "solid-js";
 import { formatDate, getCyclePhaseForDate } from "../utils/periodUtils";
 import PhaseTooltip from "./PhaseTooltip";
 import { Period, CyclePhase } from "../types/period";
@@ -8,6 +8,7 @@ interface CalendarMarkedDate {
   textColor: string;
   startingDay: boolean;
   endingDay: boolean;
+  borderOnly?: boolean;
 }
 
 interface DayInfo {
@@ -23,6 +24,7 @@ interface CalendarProps {
   onDayPress?: (dateString: string) => void;
   periods?: Period[];
   averageCycleLength?: number;
+  moodMarkers?: Record<string, string[]>;
 }
 
 export default function Calendar(props: CalendarProps) {
@@ -39,8 +41,8 @@ export default function Calendar(props: CalendarProps) {
     const lastDay = new Date(year, month + 1, 0);
     
     // Get the day of the week for the first day (0 = Sunday, 1 = Monday, etc.)
-    // We want Monday to be first, so adjust
-    const startDay = (firstDay.getDay() + 6) % 7; // Monday = 0
+    // We want Sunday to be first
+    const startDay = firstDay.getDay();
     
     // Create array of days
     const days: (Date | null)[] = [];
@@ -219,7 +221,7 @@ export default function Calendar(props: CalendarProps) {
         class="grid grid-cols-7"
         style={{"background-color": "var(--bg-secondary)"}}
       >
-        <For each={['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']}>
+        <For each={['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']}>
           {(day) => (
             <div 
               class="p-2 text-center text-sm font-medium"
@@ -236,6 +238,7 @@ export default function Calendar(props: CalendarProps) {
         <For each={processedDays()}>
           {(dayInfo) => {
             const { date, marking, pillStart, pillEnd, pillMiddle } = dayInfo;
+            const moodCount = date ? props.moodMarkers?.[formatDate(date)]?.length ?? 0 : 0;
             
             return (
                 <div class="aspect-square relative">
@@ -243,7 +246,7 @@ export default function Calendar(props: CalendarProps) {
                   <div class="relative w-full h-full flex items-center justify-center">
                     <button
                       onClick={() => props.onDayPress?.(formatDate(date))}
-                      class="flex items-center justify-center text-sm font-medium transition-colors"
+                      class="flex flex-col items-center justify-center text-sm font-medium transition-colors"
                       style={{
                         'width': marking ? '100%' : 'auto',
                         'height': marking ? '100%' : 'auto',
@@ -296,7 +299,13 @@ export default function Calendar(props: CalendarProps) {
                         hideTooltip();
                       }}
                     >
-                      {date.getDate()}
+                      <span class="leading-none">{date.getDate()}</span>
+                      <Show when={moodCount > 0}>
+                        <span
+                          class="mt-1 h-1.5 w-1.5 rounded-full"
+                          style={{"background-color": "var(--accent-color)"}}
+                        />
+                      </Show>
                     </button>
                   </div>
                 ) : (

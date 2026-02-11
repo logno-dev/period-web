@@ -16,6 +16,7 @@ interface ModalProps {
 }
 
 export default function Modal(props: ModalProps) {
+  const isStacked = () => props.buttons.length > 3;
   createEffect(() => {
     if (props.visible) {
       document.body.style.overflow = 'hidden';
@@ -76,10 +77,12 @@ export default function Modal(props: ModalProps) {
               >
                 {props.message}
               </p>
-              <div class="flex gap-3 justify-end">
+              <div
+                class={`flex gap-3 ${isStacked() ? "flex-col items-stretch" : "justify-end"}`}
+              >
                 {props.buttons.map((button) => (
                   <button
-                    class="px-4 py-2 rounded-md font-medium transition-colors"
+                    class={`px-4 py-2 rounded-md font-medium transition-colors ${isStacked() ? "w-full" : ""}`}
                     style={getButtonStyle(button.style)}
                     onClick={() => {
                       button.onPress();

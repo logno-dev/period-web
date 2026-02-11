@@ -8,6 +8,15 @@ export interface Period {
   updatedAt?: Date;
 }
 
+export interface MoodMarker {
+  id: string;
+  userId: number;
+  date: string; // YYYY-MM-DD format
+  mood: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface PeriodStats {
   startDate: string;
   endDate: string;

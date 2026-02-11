@@ -20,7 +20,18 @@ export const periods = sqliteTable("periods", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(new Date()),
 });
 
+export const moodMarkers = sqliteTable("mood_markers", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  date: text("date").notNull(), // YYYY-MM-DD format
+  mood: text("mood").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(new Date()),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Period = typeof periods.$inferSelect;
 export type NewPeriod = typeof periods.$inferInsert;
+export type MoodMarker = typeof moodMarkers.$inferSelect;
+export type NewMoodMarker = typeof moodMarkers.$inferInsert;
