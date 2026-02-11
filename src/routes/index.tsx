@@ -22,21 +22,6 @@ import {
 export default function Home() {
   const { session } = useAuth();
 
-  const moodOptions = [
-    "Low mood",
-    "Anxious",
-    "Irritable",
-    "Happy",
-    "High energy",
-    "Low energy",
-    "Headache",
-    "Bloating",
-    "Tender breasts",
-    "Cramps",
-    "Constipation",
-    "Diarrhea",
-  ];
-  
   // Track if we're on the client to prevent hydration mismatch
   const [isClient, setIsClient] = createSignal(false);
   
@@ -49,6 +34,7 @@ export default function Home() {
   const [modalTitle, setModalTitle] = createSignal('');
   const [modalMessage, setModalMessage] = createSignal('');
   const [modalButtons, setModalButtons] = createSignal<ModalConfig['buttons']>([]);
+  const [modalSections, setModalSections] = createSignal<ModalConfig['sections']>(undefined);
   const [modalListTitle, setModalListTitle] = createSignal<string | undefined>(undefined);
   const [modalListItems, setModalListItems] = createSignal<Array<{ id: string; label: string }> | undefined>(undefined);
   const [modalListEmptyText, setModalListEmptyText] = createSignal<string | undefined>(undefined);
@@ -71,11 +57,13 @@ export default function Home() {
   const showModal = (
     title: string,
     message: string,
-    buttons: ModalConfig['buttons']
+    buttons: ModalConfig['buttons'],
+    sections?: ModalConfig['sections']
   ) => {
     setModalTitle(title);
     setModalMessage(message);
     setModalButtons(buttons);
+    setModalSections(sections);
     setModalListTitle(undefined);
     setModalListItems(undefined);
     setModalListEmptyText(undefined);
@@ -178,35 +166,73 @@ export default function Home() {
   const openMoodPicker = (dateString: string) => {
     const dateLabel = parseDate(dateString).toLocaleDateString();
 
+    const buildMoodItems = (moods: string[], textColor: string) =>
+      moods.map((mood) => ({
+        text: mood,
+        onPress: async () => {
+          try {
+            const response = await fetch('/api/mood-markers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ date: dateString, mood }),
+            });
+
+            if (response.ok) {
+              refetchMoodMarkers();
+            }
+          } catch (error) {
+            console.error('Failed to add mood marker:', error);
+          }
+        },
+        style: 'ghost' as const,
+        textColor,
+      }));
+
+    const moodSections: ModalConfig['sections'] = [
+      {
+        title: 'Positive',
+        items: buildMoodItems([
+          'Happy',
+          'High energy',
+          'Aroused',
+        ], '#15803d')
+      },
+      {
+        title: 'Neutral',
+        items: buildMoodItems([
+          'Tender breasts',
+          'Full breasts',
+          'Deflated breasts',
+          'Spacey',
+        ], '#64748b')
+      },
+      {
+        title: 'Negative',
+        items: buildMoodItems([
+          'Low mood',
+          'Anxious',
+          'Irritable',
+          'Low energy',
+          'Bloating',
+          'Cramps',
+          'Constipation',
+          'Diarrhea',
+          'Headache',
+        ], '#b91c1c')
+      },
+    ];
+
     showModal(
       'Add Mood Marker',
       `Select a mood for ${dateLabel}.`,
       [
-        ...moodOptions.map((mood) => ({
-          text: mood,
-          onPress: async () => {
-            try {
-              const response = await fetch('/api/mood-markers', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ date: dateString, mood }),
-              });
-
-              if (response.ok) {
-                refetchMoodMarkers();
-              }
-            } catch (error) {
-              console.error('Failed to add mood marker:', error);
-            }
-          },
-          style: 'default' as const,
-        })),
         {
           text: 'Cancel',
           onPress: () => {},
           style: 'cancel' as const,
         },
-      ]
+      ],
+      moodSections
     );
   };
 
@@ -1004,6 +1030,7 @@ export default function Home() {
         title={modalTitle()}
         message={modalMessage()}
         buttons={modalButtons()}
+        sections={modalSections()}
         listTitle={modalListTitle()}
         listItems={modalListItems()}
         listEmptyText={modalListEmptyText()}

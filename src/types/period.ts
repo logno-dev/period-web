@@ -58,7 +58,18 @@ export interface ModalConfig {
   buttons: Array<{
     text: string;
     onPress: () => void;
-    style?: 'default' | 'cancel' | 'destructive';
+    style?: 'default' | 'cancel' | 'destructive' | 'ghost';
     closeOnPress?: boolean;
+    textColor?: string;
+  }>;
+  sections?: Array<{
+    title: string;
+    items: Array<{
+      text: string;
+      onPress: () => void;
+      style?: 'default' | 'cancel' | 'destructive' | 'ghost';
+      closeOnPress?: boolean;
+      textColor?: string;
+    }>;
   }>;
 }
