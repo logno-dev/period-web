@@ -5,6 +5,7 @@ interface ModalButton {
   text: string;
   onPress: () => void;
   style?: 'default' | 'cancel' | 'destructive';
+  closeOnPress?: boolean;
 }
 
 interface ModalProps {
@@ -138,7 +139,9 @@ export default function Modal(props: ModalProps) {
                     style={getButtonStyle(button.style)}
                     onClick={() => {
                       button.onPress();
-                      props.onClose();
+                      if (button.closeOnPress !== false) {
+                        props.onClose();
+                      }
                     }}
                   >
                     {button.text}

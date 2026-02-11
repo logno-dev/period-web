@@ -244,22 +244,23 @@ export default function Home() {
         onPress: () => {},
         style: 'cancel' as const,
       },
-      {
-        text: 'Edit Start Date',
-        onPress: () => {
-          setEditMode({ active: true, periodId: periodForDate.id, editingField: 'start' });
-          showModal('Edit Start Date', 'Tap on the calendar to select a new start date.', [
-            {
-              text: 'Cancel',
-              onPress: () => {
-                setEditMode({ active: false, periodId: null, editingField: null });
+        {
+          text: 'Edit Start Date',
+          onPress: () => {
+            setEditMode({ active: true, periodId: periodForDate.id, editingField: 'start' });
+            showModal('Edit Start Date', 'Tap on the calendar to select a new start date.', [
+              {
+                text: 'Cancel',
+                onPress: () => {
+                  setEditMode({ active: false, periodId: null, editingField: null });
+                },
+                style: 'cancel' as const,
               },
-              style: 'cancel' as const,
-            },
-          ]);
+            ]);
+          },
+          style: 'default' as const,
+          closeOnPress: false,
         },
-        style: 'default' as const,
-      },
       ...(!isOngoing ? [{
         text: 'Edit End Date',
         onPress: () => {
@@ -275,6 +276,7 @@ export default function Home() {
           ]);
         },
         style: 'default' as const,
+        closeOnPress: false,
       }] : []),
       {
         text: 'Delete',
@@ -460,11 +462,13 @@ export default function Home() {
           text: 'Manage Period',
           onPress: () => openManagePeriodModal(periodForDate, isOngoing),
           style: 'default' as const,
+          closeOnPress: false,
         },
         {
           text: 'Add Mood Marker',
           onPress: () => openMoodPicker(dateString),
           style: 'default' as const,
+          closeOnPress: false,
         },
         {
           text: 'Cancel',
@@ -494,6 +498,7 @@ export default function Home() {
               text: 'Add Mood Marker',
               onPress: () => openMoodPicker(dateString),
               style: 'default' as const,
+              closeOnPress: false,
             },
             {
               text: 'Cancel',
@@ -536,6 +541,7 @@ export default function Home() {
             text: 'Add Mood Marker',
             onPress: () => openMoodPicker(dateString),
             style: 'default' as const,
+            closeOnPress: false,
           },
           {
             text: 'Cancel',
@@ -577,6 +583,7 @@ export default function Home() {
             text: 'Add Mood Marker',
             onPress: () => openMoodPicker(dateString),
             style: 'default' as const,
+            closeOnPress: false,
           },
           {
             text: 'Cancel',

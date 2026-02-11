@@ -302,8 +302,11 @@ export default function Calendar(props: CalendarProps) {
                       <span class="leading-none">{date.getDate()}</span>
                       <Show when={moodCount > 0}>
                         <span
-                          class="mt-1 h-1.5 w-1.5 rounded-full"
-                          style={{"background-color": "var(--accent-color)"}}
+                          class="mt-1 h-2 w-2 rounded-full"
+                          style={{
+                            "background-color": "#4A2D6F",
+                            "border": "2px solid #ffffff"
+                          }}
                         />
                       </Show>
                     </button>
