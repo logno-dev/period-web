@@ -22,6 +22,13 @@
       "when": 1766097008101,
       "tag": "0002_tricky_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1770768417664,
+      "tag": "0003_keen_gargoyle",
+      "breakpoints": true
     }
   ]
 }

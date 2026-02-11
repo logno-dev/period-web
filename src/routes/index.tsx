@@ -1,9 +1,7 @@
 import { Title } from "@solidjs/meta";
 import { createMemo, createResource, Show, createSignal, createEffect } from "solid-js";
 import { createStore } from "solid-js/store";
-import { A } from "@solidjs/router";
 import { useAuth } from "~/components/Context";
-import { logout } from "~/auth";
 import Calendar from "~/components/Calendar";
 import Modal from "~/components/Modal";
 import CyclePhaseLegend from "~/components/CyclePhaseLegend";
@@ -51,6 +49,10 @@ export default function Home() {
   const [modalTitle, setModalTitle] = createSignal('');
   const [modalMessage, setModalMessage] = createSignal('');
   const [modalButtons, setModalButtons] = createSignal<ModalConfig['buttons']>([]);
+  const [modalListTitle, setModalListTitle] = createSignal<string | undefined>(undefined);
+  const [modalListItems, setModalListItems] = createSignal<Array<{ id: string; label: string }> | undefined>(undefined);
+  const [modalListEmptyText, setModalListEmptyText] = createSignal<string | undefined>(undefined);
+  const [modalListRemoveHandler, setModalListRemoveHandler] = createSignal<((id: string) => void) | undefined>(undefined);
 
   const [moodMode, setMoodMode] = createSignal(false);
 
@@ -66,10 +68,18 @@ export default function Home() {
   });
 
   // Helper function to show modal
-  const showModal = (title: string, message: string, buttons: ModalConfig['buttons']) => {
+  const showModal = (
+    title: string,
+    message: string,
+    buttons: ModalConfig['buttons']
+  ) => {
     setModalTitle(title);
     setModalMessage(message);
     setModalButtons(buttons);
+    setModalListTitle(undefined);
+    setModalListItems(undefined);
+    setModalListEmptyText(undefined);
+    setModalListRemoveHandler(undefined);
     setModalVisible(true);
   };
 
@@ -153,87 +163,145 @@ export default function Home() {
     return grouped;
   });
 
-  const moodPatterns = createMemo(() => {
+  const moodMarkersByDateWithIds = createMemo(() => {
     const markers = moodMarkers();
-    const periodsData = periods();
-    if (!markers || !periodsData) return [];
+    if (!markers) return {};
 
-    const averageCycleLength = calculateAverageCycleLength(periodsData);
-    const summary: Record<string, {
-      total: number;
-      dayCounts: Record<number, number>;
-      phaseCounts: Record<string, number>;
-      unknownCycleCount: number;
-    }> = {};
-
+    const grouped: Record<string, MoodMarker[]> = {};
     markers.forEach((marker: MoodMarker) => {
-      if (!summary[marker.mood]) {
-        summary[marker.mood] = {
-          total: 0,
-          dayCounts: {},
-          phaseCounts: {},
-          unknownCycleCount: 0,
-        };
-      }
+      if (!grouped[marker.date]) grouped[marker.date] = [];
+      grouped[marker.date].push(marker);
+    });
+    return grouped;
+  });
 
-      summary[marker.mood].total += 1;
+  const openMoodPicker = (dateString: string) => {
+    const dateLabel = parseDate(dateString).toLocaleDateString();
 
-      const phaseInfo = getCyclePhaseForDate(marker.date, periodsData, averageCycleLength);
-      if (phaseInfo?.dayInCycle) {
-        summary[marker.mood].dayCounts[phaseInfo.dayInCycle] =
-          (summary[marker.mood].dayCounts[phaseInfo.dayInCycle] || 0) + 1;
-      } else {
-        summary[marker.mood].unknownCycleCount += 1;
-      }
+    showModal(
+      'Add Mood Marker',
+      `Select a mood for ${dateLabel}.`,
+      [
+        ...moodOptions.map((mood) => ({
+          text: mood,
+          onPress: async () => {
+            try {
+              const response = await fetch('/api/mood-markers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date: dateString, mood }),
+              });
 
-      if (phaseInfo?.phase) {
-        summary[marker.mood].phaseCounts[phaseInfo.phase] =
-          (summary[marker.mood].phaseCounts[phaseInfo.phase] || 0) + 1;
+              if (response.ok) {
+                refetchMoodMarkers();
+              }
+            } catch (error) {
+              console.error('Failed to add mood marker:', error);
+            }
+          },
+          style: 'default' as const,
+        })),
+        {
+          text: 'Cancel',
+          onPress: () => {},
+          style: 'cancel' as const,
+        },
+      ]
+    );
+  };
+
+  const setMoodListForDate = (dateString: string) => {
+    const markers = moodMarkersByDateWithIds()[dateString] || [];
+    setModalListTitle("Mood Markers");
+    setModalListEmptyText("None yet for this day.");
+    setModalListItems(markers.map((marker: MoodMarker) => ({
+      id: marker.id,
+      label: marker.mood,
+    })));
+    setModalListRemoveHandler(() => async (id: string) => {
+      try {
+        const response = await fetch(`/api/mood-markers?id=${id}`, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          refetchMoodMarkers();
+          setMoodListForDate(dateString);
+        }
+      } catch (error) {
+        console.error('Failed to delete mood marker:', error);
       }
     });
+  };
 
-    const phaseLabels: Record<string, string> = {
-      menstrual: "Menstrual",
-      follicular: "Follicular",
-      ovulation: "Ovulation",
-      luteal: "Luteal",
-    };
+  const openManagePeriodModal = (periodForDate: Period, isOngoing: boolean) => {
+    const startDateObj = parseDate(periodForDate.startDate);
+    const endDateObj = periodForDate.endDate ? parseDate(periodForDate.endDate) : null;
 
-    return Object.entries(summary)
-      .map(([mood, data]) => {
-        let bestDay: number | null = null;
-        let bestDayCount = 0;
+    const manageButtons: ModalConfig['buttons'] = [
+      {
+        text: 'Cancel',
+        onPress: () => {},
+        style: 'cancel' as const,
+      },
+      {
+        text: 'Edit Start Date',
+        onPress: () => {
+          setEditMode({ active: true, periodId: periodForDate.id, editingField: 'start' });
+          showModal('Edit Start Date', 'Tap on the calendar to select a new start date.', [
+            {
+              text: 'Cancel',
+              onPress: () => {
+                setEditMode({ active: false, periodId: null, editingField: null });
+              },
+              style: 'cancel' as const,
+            },
+          ]);
+        },
+        style: 'default' as const,
+      },
+      ...(!isOngoing ? [{
+        text: 'Edit End Date',
+        onPress: () => {
+          setEditMode({ active: true, periodId: periodForDate.id, editingField: 'end' });
+          showModal('Edit End Date', 'Tap on the calendar to select a new end date.', [
+            {
+              text: 'Cancel',
+              onPress: () => {
+                setEditMode({ active: false, periodId: null, editingField: null });
+              },
+              style: 'cancel' as const,
+            },
+          ]);
+        },
+        style: 'default' as const,
+      }] : []),
+      {
+        text: 'Delete',
+        onPress: async () => {
+          try {
+            const response = await fetch(`/api/periods?id=${periodForDate.id}`, {
+              method: 'DELETE',
+            });
 
-        Object.entries(data.dayCounts).forEach(([day, count]) => {
-          const dayNum = Number(day);
-          if (count > bestDayCount || (count === bestDayCount && (bestDay === null || dayNum < bestDay))) {
-            bestDay = dayNum;
-            bestDayCount = count;
+            if (response.ok) {
+              refetch();
+            }
+          } catch (error) {
+            console.error('Failed to delete period:', error);
           }
-        });
+        },
+        style: 'destructive' as const,
+      },
+    ];
 
-        let bestPhase: string | null = null;
-        let bestPhaseCount = 0;
+    showModal(
+      'Manage Period',
+      `Period: ${startDateObj.toLocaleDateString()} to ${endDateObj ? endDateObj.toLocaleDateString() : 'ongoing'}.`,
+      manageButtons
+    );
+  };
 
-        Object.entries(data.phaseCounts).forEach(([phase, count]) => {
-          if (count > bestPhaseCount) {
-            bestPhase = phase;
-            bestPhaseCount = count;
-          }
-        });
-
-        return {
-          mood,
-          total: data.total,
-          mostCommonDay: bestDay,
-          mostCommonDayCount: bestDayCount,
-          mostCommonPhase: bestPhase ? phaseLabels[bestPhase] : null,
-          mostCommonPhaseCount: bestPhaseCount,
-          unknownCycleCount: data.unknownCycleCount,
-        };
-      })
-      .sort((a, b) => b.total - a.total);
-  });
 
   // Period management functions
   const handleStartPeriod = async () => {
@@ -375,38 +443,7 @@ export default function Home() {
 
     if (moodMode()) {
       setMoodMode(false);
-      const dateLabel = parseDate(dateString).toLocaleDateString();
-
-      showModal(
-        'Add Mood Marker',
-        `Select a mood for ${dateLabel}.`,
-        [
-          ...moodOptions.map((mood) => ({
-            text: mood,
-            onPress: async () => {
-              try {
-                const response = await fetch('/api/mood-markers', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ date: dateString, mood }),
-                });
-
-                if (response.ok) {
-                  refetchMoodMarkers();
-                }
-              } catch (error) {
-                console.error('Failed to add mood marker:', error);
-              }
-            },
-            style: 'default' as const,
-          })),
-          {
-            text: 'Cancel',
-            onPress: () => {},
-            style: 'cancel' as const,
-          },
-        ]
-      );
+      openMoodPicker(dateString);
       return;
     }
 
@@ -416,72 +453,28 @@ export default function Home() {
     );
     
     if (periodForDate) {
-      const startDateObj = parseDate(periodForDate.startDate);
-      const endDateObj = periodForDate.endDate ? parseDate(periodForDate.endDate) : null;
       const isOngoing = !periodForDate.endDate;
-      
+
       const manageButtons: ModalConfig['buttons'] = [
+        {
+          text: 'Manage Period',
+          onPress: () => openManagePeriodModal(periodForDate, isOngoing),
+          style: 'default' as const,
+        },
+        {
+          text: 'Add Mood Marker',
+          onPress: () => openMoodPicker(dateString),
+          style: 'default' as const,
+        },
         {
           text: 'Cancel',
           onPress: () => {},
           style: 'cancel' as const,
         },
-        {
-          text: 'Edit Start Date',
-          onPress: () => {
-            setEditMode({ active: true, periodId: periodForDate.id, editingField: 'start' });
-            showModal('Edit Start Date', 'Tap on the calendar to select a new start date.', [
-              {
-                text: 'Cancel',
-                onPress: () => {
-                  setEditMode({ active: false, periodId: null, editingField: null });
-                },
-                style: 'cancel',
-              },
-            ]);
-          },
-          style: 'default' as const,
-        },
-        ...(!isOngoing ? [{
-          text: 'Edit End Date',
-          onPress: () => {
-            setEditMode({ active: true, periodId: periodForDate.id, editingField: 'end' });
-            showModal('Edit End Date', 'Tap on the calendar to select a new end date.', [
-              {
-                text: 'Cancel',
-                onPress: () => {
-                  setEditMode({ active: false, periodId: null, editingField: null });
-                },
-                style: 'cancel' as const,
-              },
-            ]);
-          },
-          style: 'default' as const,
-        }] : []),
-        {
-          text: 'Delete',
-          onPress: async () => {
-            try {
-              const response = await fetch(`/api/periods?id=${periodForDate.id}`, {
-                method: 'DELETE',
-              });
-
-              if (response.ok) {
-                refetch();
-              }
-            } catch (error) {
-              console.error('Failed to delete period:', error);
-            }
-          },
-          style: 'destructive' as const,
-        },
       ];
 
-      showModal(
-        'Manage Period',
-        `Period: ${startDateObj.toLocaleDateString()} to ${endDateObj ? endDateObj.toLocaleDateString() : 'ongoing'}. What would you like to do?`,
-        manageButtons
-      );
+      showModal('Manage Day', 'Period day selected.', manageButtons);
+      setMoodListForDate(dateString);
       return;
     }
 
@@ -494,28 +487,29 @@ export default function Home() {
 
       if (clickedDate < startDate) {
         showModal(
-          'Invalid End Date',
-          `End date cannot be before the start date. Please select a date after ${startDate.toLocaleDateString()}.`,
+          'Manage Day',
+          `Selected ${clickedDate.toLocaleDateString()}.`,
           [
             {
-              text: 'OK',
+              text: 'Add Mood Marker',
+              onPress: () => openMoodPicker(dateString),
+              style: 'default' as const,
+            },
+            {
+              text: 'Cancel',
               onPress: () => {},
-              style: 'default',
+              style: 'cancel' as const,
             },
           ]
         );
+        setMoodListForDate(dateString);
         return;
       }
 
       showModal(
-        'End Period',
-        `Do you want to end your current period on ${clickedDate.toLocaleDateString()}?`,
+        'Manage Day',
+        `Selected ${clickedDate.toLocaleDateString()}.`,
         [
-          {
-            text: 'Cancel',
-            onPress: () => {},
-            style: 'cancel',
-          },
           {
             text: 'End Period',
             onPress: async () => {
@@ -530,28 +524,34 @@ export default function Home() {
                 });
 
                 if (response.ok) {
-                  refetch(); // Refetch the resource
+                  refetch();
                 }
               } catch (error) {
                 console.error('Failed to end period:', error);
               }
             },
-            style: 'destructive',
+            style: 'destructive' as const,
+          },
+          {
+            text: 'Add Mood Marker',
+            onPress: () => openMoodPicker(dateString),
+            style: 'default' as const,
+          },
+          {
+            text: 'Cancel',
+            onPress: () => {},
+            style: 'cancel' as const,
           },
         ]
       );
+      setMoodListForDate(dateString);
     } else {
       // No active period, ask if they want to start one on this date
       const clickedDate = parseDate(dateString);
       showModal(
-        'Start Period',
-        `Do you want to start a new period on ${clickedDate.toLocaleDateString()}?`,
+        'Manage Day',
+        `Selected ${clickedDate.toLocaleDateString()}.`,
         [
-          {
-            text: 'Cancel',
-            onPress: () => {},
-            style: 'cancel',
-          },
           {
             text: 'Start Period',
             onPress: async () => {
@@ -565,16 +565,27 @@ export default function Home() {
                 });
 
                 if (response.ok) {
-                  refetch(); // Refetch the resource
+                  refetch();
                 }
               } catch (error) {
                 console.error('Failed to start period:', error);
               }
             },
-            style: 'default',
+            style: 'default' as const,
+          },
+          {
+            text: 'Add Mood Marker',
+            onPress: () => openMoodPicker(dateString),
+            style: 'default' as const,
+          },
+          {
+            text: 'Cancel',
+            onPress: () => {},
+            style: 'cancel' as const,
           },
         ]
       );
+      setMoodListForDate(dateString);
     }
   };
 
@@ -731,19 +742,21 @@ export default function Home() {
     if (pred.confidence === 'insufficient') {
       return (
         <div 
-          class="rounded-lg shadow-md p-4 mx-5 mb-4 border-l-4"
+          class="rounded-lg shadow-md px-4 py-3 mx-5 mb-3 border-l-4"
           style={{
             "background-color": "var(--bg-primary)",
             "border": "1px solid var(--border-color)",
             "border-left-color": "var(--accent-color)"
           }}
         >
-          <div class="flex justify-between items-center mb-2">
-            <h3 class="text-base font-bold" style={{"color": "var(--text-primary)"}}>Next Period Prediction</h3>
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold" style={{"color": "var(--text-primary)"}}>
+              Next period
+            </h3>
+            <span class="text-xs italic" style={{"color": "var(--text-secondary)"}}>
+              Add 2+ periods for predictions
+            </span>
           </div>
-          <p class="text-sm text-center italic" style={{"color": "var(--text-secondary)"}}>
-            Complete at least 2 periods to see predictions
-          </p>
         </div>
       );
     }
@@ -779,159 +792,47 @@ export default function Home() {
 
     return (
       <div 
-        class="rounded-lg shadow-md p-4 mx-5 mb-4 border-l-4"
+        class="rounded-lg shadow-md px-4 py-3 mx-5 mb-3 border-l-4"
         style={{
           "background-color": "var(--bg-primary)",
           "border": "1px solid var(--border-color)",
           "border-left-color": "var(--accent-color)"
         }}
       >
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="text-base font-bold" style={{"color": "var(--text-primary)"}}>Next Period Prediction</h3>
-          <span class="text-xs font-semibold" style={{ color: getConfidenceColor() }}>
-            {pred.confidence} confidence
-          </span>
-        </div>
-        <div class="text-center">
-          <div class="text-lg font-bold mb-1" style={{"color": "var(--accent-color)"}}>
-            {pred.predictedDate ? formatPredictionDate(pred.predictedDate) : 'Unknown'}
-          </div>
-          <div class="text-sm" style={{"color": "var(--text-secondary)"}}>
-            {getDaysText()}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderMoodPatterns = () => {
-    if (moodMarkers.loading) {
-      return (
-        <div
-          class="rounded-lg shadow-md p-4 mx-5 mb-4 border"
-          style={{
-            "background-color": "var(--bg-primary)",
-            "border-color": "var(--border-color)"
-          }}
-        >
-          <p class="text-sm text-center" style={{"color": "var(--text-secondary)"}}>
-            Loading mood markers...
-          </p>
-        </div>
-      );
-    }
-
-    const patterns = moodPatterns();
-    const totalMarkers = moodMarkers()?.length || 0;
-
-    if (totalMarkers === 0) {
-      return (
-        <div
-          class="rounded-lg shadow-md p-4 mx-5 mb-4 border"
-          style={{
-            "background-color": "var(--bg-primary)",
-            "border-color": "var(--border-color)"
-          }}
-        >
-          <h3 class="text-base font-bold mb-2" style={{"color": "var(--text-primary)"}}>
-            Mood Patterns
-          </h3>
-          <p class="text-sm text-center" style={{"color": "var(--text-secondary)"}}>
-            No mood markers yet. Use "Add Mood Marker" to start tracking.
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div
-        class="rounded-lg shadow-md p-4 mx-5 mb-4 border"
-        style={{
-          "background-color": "var(--bg-primary)",
-          "border-color": "var(--border-color)"
-        }}
-      >
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-base font-bold" style={{"color": "var(--text-primary)"}}>
-            Mood Patterns
-          </h3>
-          <span class="text-xs" style={{"color": "var(--text-secondary)"}}>
-            {totalMarkers} markers
-          </span>
-        </div>
-        <div class="space-y-3">
-          {patterns.map((pattern) => (
-            <div
-              class="rounded-md p-3 border"
-              style={{
-                "background-color": "var(--bg-secondary)",
-                "border-color": "var(--border-color)"
-              }}
-            >
-              <div class="font-semibold" style={{"color": "var(--text-primary)"}}>
-                {pattern.mood}
-              </div>
-              <div class="text-sm" style={{"color": "var(--text-secondary)"}}>
-                {pattern.mostCommonDay
-                  ? `Most common cycle day: ${pattern.mostCommonDay} (${pattern.mostCommonDayCount}x)`
-                  : "Not enough cycle data yet"}
-              </div>
-              <div class="text-sm" style={{"color": "var(--text-secondary)"}}>
-                {pattern.mostCommonPhase
-                  ? `Most common phase: ${pattern.mostCommonPhase} (${pattern.mostCommonPhaseCount}x)`
-                  : ""}
-              </div>
-              <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
-                Total: {pattern.total} marker{pattern.total === 1 ? "" : "s"}
-                {pattern.unknownCycleCount > 0 ? `, ${pattern.unknownCycleCount} outside cycle data` : ""}
-              </div>
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
+              Next period
             </div>
-          ))}
+            <div class="text-base font-bold" style={{"color": "var(--accent-color)"}}>
+              {pred.predictedDate ? formatPredictionDate(pred.predictedDate) : 'Unknown'}
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm" style={{"color": "var(--text-secondary)"}}>
+              {getDaysText()}
+            </div>
+            <div class="text-xs font-semibold" style={{ color: getConfidenceColor() }}>
+              {pred.confidence}
+            </div>
+          </div>
         </div>
       </div>
     );
   };
+
 
   return (
     <main class="min-h-screen" style={{"background-color": "var(--bg-primary)"}}>
       <Title>Period Tracker</Title>
       
       <Header />
-      
-      {/* User info and logout */}
-      <div 
-        class="border-b p-4" 
-        style={{
-          "background-color": "var(--bg-secondary)",
-          "border-color": "var(--border-color)"
-        }}
-      >
-        <div class="flex justify-between items-center max-w-4xl mx-auto">
-          <div class="text-sm" style={{"color": "var(--text-secondary)"}}>
-            Welcome, <span class="font-medium" style={{"color": "var(--text-primary)"}}>{session()?.email}</span>
-          </div>
-          <form action={logout} method="post">
-            <button
-              type="submit"
-              class="px-3 py-1 text-xs rounded transition-colors"
-              style={{
-                "background-color": "var(--button-bg)",
-                "color": "var(--button-text)"
-              }}
-              onmouseover={(e) => e.currentTarget.style.backgroundColor = "var(--button-hover)"}
-              onmouseout={(e) => e.currentTarget.style.backgroundColor = "var(--button-bg)"}
-            >
-              Sign Out
-            </button>
-          </form>
-        </div>
-      </div>
 
       <Show when={isClient() && periods.loading}>
-        <div class="flex items-center justify-center py-12">
+        <div class="flex items-center justify-center py-8">
           <div class="text-center">
             <div 
-              class="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4"
+              class="animate-spin rounded-full h-10 w-10 border-b-2 mx-auto mb-3"
               style={{"border-color": "var(--accent-color)"}}
             ></div>
             <p style={{"color": "var(--text-secondary)"}}>Loading...</p>
@@ -941,7 +842,7 @@ export default function Home() {
 
       <Show when={isClient() && periods.error}>
         <div 
-          class="border rounded-lg p-4 mx-5 mt-4"
+          class="border rounded-lg p-3 mx-5 mt-3"
           style={{
             "background-color": "var(--bg-secondary)",
             "border-color": "var(--error-color)"
@@ -955,17 +856,17 @@ export default function Home() {
 
       <Show when={isClient() && !periods.loading && !periods.error}>
         {/* Responsive Layout Container */}
-        <div class="lg:flex lg:gap-6 lg:max-w-7xl lg:mx-auto lg:px-6">
+        <div class="lg:flex lg:gap-4 lg:max-w-7xl lg:mx-auto lg:px-6">
           {/* Main Content - Left Column on Desktop */}
           <div class="lg:flex-1 lg:max-w-2xl">
             {/* Prediction Card */}
             {renderPredictionCard()}
 
             {/* Calendar */}
-            <div class="p-5">
+            <div class="p-4">
               <Show when={editMode.active}>
                 <div 
-                  class="mb-4 p-4 rounded-lg shadow-md border flex items-center justify-between"
+                  class="mb-3 p-3 rounded-lg shadow-md border flex items-center justify-between"
                   style={{
                     "background-color": "var(--bg-primary)",
                     "border-color": "var(--accent-color)",
@@ -979,7 +880,7 @@ export default function Home() {
                   </div>
                   <button
                     onClick={() => setEditMode({ active: false, periodId: null, editingField: null })}
-                    class="px-4 py-2 rounded-md font-medium transition-colors"
+                    class="px-3 py-1.5 rounded-md font-medium transition-colors"
                     style={{
                       "background-color": "var(--bg-secondary)",
                       "color": "var(--text-primary)",
@@ -994,7 +895,7 @@ export default function Home() {
               </Show>
               <Show when={moodMode()}>
                 <div
-                  class="mb-4 p-4 rounded-lg shadow-md border flex items-center justify-between"
+                  class="mb-3 p-3 rounded-lg shadow-md border flex items-center justify-between"
                   style={{
                     "background-color": "var(--bg-primary)",
                     "border-color": "var(--accent-color)",
@@ -1006,7 +907,7 @@ export default function Home() {
                   </div>
                   <button
                     onClick={() => setMoodMode(false)}
-                    class="px-4 py-2 rounded-md font-medium transition-colors"
+                    class="px-3 py-1.5 rounded-md font-medium transition-colors"
                     style={{
                       "background-color": "var(--bg-secondary)",
                       "color": "var(--text-primary)",
@@ -1033,21 +934,18 @@ export default function Home() {
             {/* Cycle Phase Legend */}
             <CyclePhaseLegend />
 
-            {/* Mood Patterns */}
-            {renderMoodPatterns()}
-
             {/* Action Buttons */}
-            <div class="p-5 pb-10">
-              <div class="flex gap-3">
+            <div class="p-4 pb-6">
+              <div class="flex gap-2">
                 <button
                   onClick={currentPeriod() ? handleStopPeriod : handleStartPeriod}
-                  class="flex-2 px-6 py-4 rounded-lg font-bold text-lg transition-colors"
+                  class="flex-1 px-5 py-3.5 rounded-lg font-bold text-base transition-colors"
                   style={{
                     "background-color": currentPeriod() ? "var(--error-color)" : "var(--success-color)",
                     "color": "white"
                   }}
                   onmouseover={(e) => {
-                    const bgColor = currentPeriod() ? "#dc2626" : "#059669"; // darker versions
+                    const bgColor = currentPeriod() ? "#dc2626" : "#059669";
                     e.currentTarget.style.backgroundColor = bgColor;
                   }}
                   onmouseout={(e) => {
@@ -1056,25 +954,9 @@ export default function Home() {
                 >
                   {currentPeriod() ? 'Stop Period' : 'Start Period'}
                 </button>
-                
-                {/* Mobile Stats Button */}
-                <A
-                  href="/stats"
-                  class="flex-1 px-4 py-4 rounded-lg font-semibold transition-colors text-center lg:hidden"
-                  style={{
-                    "background-color": "var(--button-bg)",
-                    "color": "var(--button-text)"
-                  }}
-                  onmouseover={(e) => e.currentTarget.style.backgroundColor = "var(--button-hover)"}
-                  onmouseout={(e) => e.currentTarget.style.backgroundColor = "var(--button-bg)"}
-                >
-                  Stats
-                </A>
-              </div>
-              <div class="mt-3">
                 <button
                   onClick={() => setMoodMode((prev) => !prev)}
-                  class="w-full px-4 py-3 rounded-lg font-semibold transition-colors"
+                  class="flex-1 px-4 py-3.5 rounded-lg font-semibold transition-colors"
                   style={{
                     "background-color": moodMode() ? "var(--error-color)" : "var(--button-bg)",
                     "color": moodMode() ? "white" : "var(--button-text)"
@@ -1090,7 +972,7 @@ export default function Home() {
 
           {/* Desktop Stats Sidebar - Right Column */}
           <div class="hidden lg:block lg:w-80 lg:flex-shrink-0">
-            <div class="sticky top-24 p-5">
+            <div class="sticky top-24 p-4">
               <div 
                 class="rounded-lg border p-4"
                 style={{
@@ -1115,6 +997,10 @@ export default function Home() {
         title={modalTitle()}
         message={modalMessage()}
         buttons={modalButtons()}
+        listTitle={modalListTitle()}
+        listItems={modalListItems()}
+        listEmptyText={modalListEmptyText()}
+        onListItemRemove={modalListRemoveHandler()}
         onClose={() => setModalVisible(false)}
       />
     </main>
