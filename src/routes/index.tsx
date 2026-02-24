@@ -797,17 +797,7 @@ export default function Home() {
       );
     };
 
-    const getFertilityDayText = (dayFromOvulation: number | null) => {
-      if (dayFromOvulation === null) return 'Lower during menstruation';
-      if (dayFromOvulation === 0) return 'Estimated ovulation day';
-      if (dayFromOvulation > 0) {
-        return `${dayFromOvulation} day${dayFromOvulation === 1 ? '' : 's'} after ovulation`;
-      }
-      return `${Math.abs(dayFromOvulation)} day${Math.abs(dayFromOvulation) === 1 ? '' : 's'} before ovulation`;
-    };
-
     const fertilityPercentText = estimate ? `${estimate.percentage}%` : 'Unavailable';
-    const fertilityDayText = estimate ? getFertilityDayText(estimate.dayFromOvulation) : 'Add cycle history to estimate';
     
     if (pred.confidence === 'insufficient') {
       return (
@@ -828,28 +818,21 @@ export default function Home() {
             </span>
           </div>
           <div class="mt-2 pt-2 border-t" style={{"border-color": "var(--border-color)"}}>
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
-                  Fertility index
-                </div>
-                <div class="flex items-center gap-1">
-                  <div class="text-sm font-semibold" style={{"color": "#0369a1"}}>
-                    {fertilityPercentText}
-                  </div>
-                  <button
-                    onClick={showFertilityDisclaimerModal}
-                    class="text-xs font-bold px-1"
-                    style={{"color": "var(--accent-color)"}}
-                    aria-label="Open fertility disclaimer"
-                  >
-                    *
-                  </button>
-                </div>
-                <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
-                  {fertilityDayText}
-                </div>
+            <div class="flex items-center gap-2">
+              <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
+                Fertility index
               </div>
+              <div class="text-sm font-semibold" style={{"color": "#0369a1"}}>
+                {fertilityPercentText}
+              </div>
+              <button
+                onClick={showFertilityDisclaimerModal}
+                class="text-xs font-bold px-1"
+                style={{"color": "var(--accent-color)"}}
+                aria-label="Open fertility disclaimer"
+              >
+                *
+              </button>
             </div>
           </div>
         </div>
@@ -913,28 +896,21 @@ export default function Home() {
           </div>
         </div>
         <div class="mt-2 pt-2 border-t" style={{"border-color": "var(--border-color)"}}>
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
-                Fertility index
-              </div>
-              <div class="flex items-center gap-1">
-                <div class="text-sm font-semibold" style={{"color": "#0369a1"}}>
-                  {fertilityPercentText}
-                </div>
-                <button
-                  onClick={showFertilityDisclaimerModal}
-                  class="text-xs font-bold px-1"
-                  style={{"color": "var(--accent-color)"}}
-                  aria-label="Open fertility disclaimer"
-                >
-                  *
-                </button>
-              </div>
-              <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
-                {fertilityDayText}
-              </div>
+          <div class="flex items-center gap-2">
+            <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
+              Fertility index
             </div>
+            <div class="text-sm font-semibold" style={{"color": "#0369a1"}}>
+              {fertilityPercentText}
+            </div>
+            <button
+              onClick={showFertilityDisclaimerModal}
+              class="text-xs font-bold px-1"
+              style={{"color": "var(--accent-color)"}}
+              aria-label="Open fertility disclaimer"
+            >
+              *
+            </button>
           </div>
         </div>
       </div>
