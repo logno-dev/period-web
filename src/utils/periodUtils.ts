@@ -1,5 +1,12 @@
 import { Period, PeriodStats, CyclePhase, CyclePhaseInfo, PeriodPrediction } from '../types/period';
 
+export interface FertilityEstimate {
+  percentage: number;
+  dayFromOvulation: number | null;
+  phase: CyclePhase;
+  isEstimated: boolean;
+}
+
 export const generateId = (): string => {
   return Date.now().toString() + Math.random().toString(36).substring(2, 11);
 };
@@ -245,6 +252,131 @@ export const getCyclePhaseForDate = (
     phase: 'follicular',
     dayInCycle,
     color: '#FBB6CE', // Light Pink
+    isEstimated: isBasedOnEstimation,
+  };
+};
+
+export const calculateFertilityEstimateForDate = (
+  date: string,
+  periods: Period[],
+  averageCycleLength: number = 28,
+): FertilityEstimate | null => {
+  const checkDate = parseDate(date);
+
+  const workingPeriods = periods.map(p => {
+    if (!p.endDate) {
+      const estimatedEndDate = estimateActivePeriodEndDate(p, periods);
+      return { ...p, endDate: estimatedEndDate, isEstimated: true };
+    }
+    return { ...p, isEstimated: false };
+  });
+
+  const completedPeriods = workingPeriods
+    .filter(p => p.endDate)
+    .sort(
+      (a, b) =>
+        parseDate(a.startDate).getTime() - parseDate(b.startDate).getTime(),
+    );
+
+  if (completedPeriods.length === 0) return null;
+
+  const periodForDate = workingPeriods.find(period => {
+    if (!period.endDate) return false;
+    const startDate = parseDate(period.startDate);
+    const endDate = parseDate(period.endDate);
+    return checkDate >= startDate && checkDate <= endDate;
+  });
+
+  if (periodForDate) {
+    return {
+      percentage: 2,
+      dayFromOvulation: null,
+      phase: 'menstrual',
+      isEstimated: periodForDate.isEstimated ?? false,
+    };
+  }
+
+  let referencePeriod: (Period & { isEstimated?: boolean }) | null = null;
+  let nextPeriod: (Period & { isEstimated?: boolean }) | null = null;
+
+  for (let i = completedPeriods.length - 1; i >= 0; i--) {
+    const period = completedPeriods[i];
+    const periodStart = parseDate(period.startDate);
+    if (checkDate >= periodStart) {
+      referencePeriod = period;
+      if (i < completedPeriods.length - 1) {
+        nextPeriod = completedPeriods[i + 1];
+      }
+      break;
+    }
+  }
+
+  if (!referencePeriod) return null;
+
+  const isBasedOnEstimation = nextPeriod ? false : (referencePeriod.isEstimated ?? false);
+
+  let actualCycleLength = averageCycleLength;
+  if (nextPeriod) {
+    const refStart = parseDate(referencePeriod.startDate);
+    const nextStart = parseDate(nextPeriod.startDate);
+    actualCycleLength = Math.ceil(
+      (nextStart.getTime() - refStart.getTime()) / (1000 * 60 * 60 * 24),
+    );
+  }
+
+  const referenceStart = parseDate(referencePeriod.startDate);
+  const daysSinceStart = Math.ceil(
+    (checkDate.getTime() - referenceStart.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  const dayInCycle = daysSinceStart + 1;
+
+  let actualPeriodLength = calculateAveragePeriodLength(periods);
+  if (referencePeriod.endDate) {
+    actualPeriodLength = calculateDaysBetween(
+      referencePeriod.startDate,
+      referencePeriod.endDate,
+    );
+  }
+
+  const lutealStart = Math.max(1, Math.round(actualCycleLength - 12));
+  const ovulationDay = lutealStart - 1;
+  const dayFromOvulation = dayInCycle - ovulationDay;
+
+  let phase: CyclePhase = 'follicular';
+  if (dayInCycle >= lutealStart) {
+    phase = 'luteal';
+  } else if (dayInCycle >= ovulationDay - 3 && dayInCycle <= ovulationDay) {
+    phase = 'ovulation';
+  } else if (dayInCycle <= actualPeriodLength) {
+    phase = 'menstrual';
+  }
+
+  const fertilityByOvulationOffset: Record<number, number> = {
+    [-5]: 25,
+    [-4]: 35,
+    [-3]: 50,
+    [-2]: 70,
+    [-1]: 90,
+    [0]: 100,
+    [1]: 12,
+    [2]: 5,
+  };
+
+  let percentage = fertilityByOvulationOffset[dayFromOvulation];
+  if (percentage === undefined) {
+    if (dayFromOvulation <= -6) percentage = 8;
+    else if (dayFromOvulation >= 3) percentage = 2;
+    else percentage = 10;
+  }
+
+  if (dayInCycle <= actualPeriodLength) {
+    percentage = 2;
+  }
+
+  return {
+    percentage,
+    dayFromOvulation,
+    phase,
     isEstimated: isBasedOnEstimation,
   };
 };

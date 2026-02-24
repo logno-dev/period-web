@@ -17,6 +17,7 @@ import {
   checkIfPeriodIsEarly,
   estimateActivePeriodEndDate,
   parseDate,
+  calculateFertilityEstimateForDate,
 } from "~/utils/periodUtils";
 
 export default function Home() {
@@ -149,6 +150,15 @@ export default function Home() {
       grouped[marker.date].push(marker.mood);
     });
     return grouped;
+  });
+
+  const fertilityEstimate = createMemo(() => {
+    const periodsData = periods();
+    if (!periodsData || periodsData.length === 0) return null;
+
+    const today = formatDate(new Date());
+    const averageCycleLength = calculateAverageCycleLength(periodsData);
+    return calculateFertilityEstimateForDate(today, periodsData, averageCycleLength);
   });
 
   const moodMarkersByDateWithIds = createMemo(() => {
@@ -771,6 +781,33 @@ export default function Home() {
 
   const renderPredictionCard = () => {
     const pred = prediction();
+    const estimate = fertilityEstimate();
+
+    const showFertilityDisclaimerModal = () => {
+      showModal(
+        'Fertility Index Disclaimer',
+        'This fertility index is a rough cycle-timing estimate and can be wrong. It is not medical advice and must not be used as the sole basis for legal, contraceptive, or pregnancy decisions.',
+        [
+          {
+            text: 'Got it',
+            onPress: () => {},
+            style: 'default' as const,
+          },
+        ],
+      );
+    };
+
+    const getFertilityDayText = (dayFromOvulation: number | null) => {
+      if (dayFromOvulation === null) return 'Lower during menstruation';
+      if (dayFromOvulation === 0) return 'Estimated ovulation day';
+      if (dayFromOvulation > 0) {
+        return `${dayFromOvulation} day${dayFromOvulation === 1 ? '' : 's'} after ovulation`;
+      }
+      return `${Math.abs(dayFromOvulation)} day${Math.abs(dayFromOvulation) === 1 ? '' : 's'} before ovulation`;
+    };
+
+    const fertilityPercentText = estimate ? `${estimate.percentage}%` : 'Unavailable';
+    const fertilityDayText = estimate ? getFertilityDayText(estimate.dayFromOvulation) : 'Add cycle history to estimate';
     
     if (pred.confidence === 'insufficient') {
       return (
@@ -789,6 +826,31 @@ export default function Home() {
             <span class="text-xs italic" style={{"color": "var(--text-secondary)"}}>
               Add 2+ periods for predictions
             </span>
+          </div>
+          <div class="mt-2 pt-2 border-t" style={{"border-color": "var(--border-color)"}}>
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
+                  Fertility index
+                </div>
+                <div class="flex items-center gap-1">
+                  <div class="text-sm font-semibold" style={{"color": "#0369a1"}}>
+                    {fertilityPercentText}
+                  </div>
+                  <button
+                    onClick={showFertilityDisclaimerModal}
+                    class="text-xs font-bold px-1"
+                    style={{"color": "var(--accent-color)"}}
+                    aria-label="Open fertility disclaimer"
+                  >
+                    *
+                  </button>
+                </div>
+                <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
+                  {fertilityDayText}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -850,13 +912,38 @@ export default function Home() {
             </div>
           </div>
         </div>
+        <div class="mt-2 pt-2 border-t" style={{"border-color": "var(--border-color)"}}>
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-xs uppercase tracking-wide" style={{"color": "var(--text-secondary)"}}>
+                Fertility index
+              </div>
+              <div class="flex items-center gap-1">
+                <div class="text-sm font-semibold" style={{"color": "#0369a1"}}>
+                  {fertilityPercentText}
+                </div>
+                <button
+                  onClick={showFertilityDisclaimerModal}
+                  class="text-xs font-bold px-1"
+                  style={{"color": "var(--accent-color)"}}
+                  aria-label="Open fertility disclaimer"
+                >
+                  *
+                </button>
+              </div>
+              <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
+                {fertilityDayText}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
 
 
   return (
-    <main class="min-h-screen" style={{"background-color": "var(--bg-primary)"}}>
+    <main class="min-h-screen pb-28 lg:pb-0" style={{"background-color": "var(--bg-primary)"}}>
       <Title>Period Tracker</Title>
       
       <Header />
@@ -965,11 +1052,17 @@ export default function Home() {
             </div>
 
             {/* Cycle Phase Legend */}
-            <CyclePhaseLegend />
+            <CyclePhaseLegend compact />
 
             {/* Action Buttons */}
-            <div class="p-4 pb-6">
-              <div class="flex gap-2">
+            <div
+              class="fixed bottom-0 left-0 right-0 z-30 p-3 border-t lg:static lg:p-4 lg:pb-6 lg:border-0"
+              style={{
+                "background-color": "var(--bg-primary)",
+                "border-color": "var(--border-color)"
+              }}
+            >
+              <div class="flex gap-2 lg:max-w-2xl lg:mx-0">
                 <button
                   onClick={currentPeriod() ? handleStopPeriod : handleStartPeriod}
                   class="flex-1 px-5 py-3.5 rounded-lg font-bold text-base transition-colors"

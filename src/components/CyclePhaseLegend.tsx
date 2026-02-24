@@ -2,7 +2,11 @@ import { createSignal } from "solid-js";
 import PhaseTooltip, { InfoIcon } from "./PhaseTooltip";
 import { CyclePhase } from "../types/period";
 
-export default function CyclePhaseLegend() {
+interface CyclePhaseLegendProps {
+  compact?: boolean;
+}
+
+export default function CyclePhaseLegend(props: CyclePhaseLegendProps) {
   const [tooltip, setTooltip] = createSignal({ visible: false, phase: 'menstrual' as CyclePhase, position: { x: 0, y: 0 } });
   const [isMobile, setIsMobile] = createSignal(false);
 
@@ -59,17 +63,17 @@ export default function CyclePhaseLegend() {
 
   return (
     <div 
-      class="rounded-lg shadow-md p-4 mx-5 mb-4 border"
+      class={`rounded-lg shadow-md mx-5 border ${props.compact ? 'p-3 mb-3' : 'p-4 mb-4'}`}
       style={{
         "background-color": "var(--bg-primary)",
         "border-color": "var(--border-color)"
       }}
     >
-      <h3 class="text-sm font-semibold mb-3" style={{"color": "var(--text-primary)"}}>Cycle Phases</h3>
-      <div class="grid grid-cols-2 gap-2">
+      <h3 class={`text-sm font-semibold ${props.compact ? 'mb-2' : 'mb-3'}`} style={{"color": "var(--text-primary)"}}>Cycle Phases</h3>
+      <div class={`grid grid-cols-2 ${props.compact ? 'gap-1.5' : 'gap-2'}`}>
         {phases.map((phase) => (
           <div 
-            class="flex items-center gap-2 relative cursor-pointer rounded p-1 transition-colors hover:bg-opacity-10"
+            class={`flex items-center gap-2 relative cursor-pointer rounded transition-colors hover:bg-opacity-10 ${props.compact ? 'p-0.5' : 'p-1'}`}
             style={{ 'background-color': 'transparent' }}
             onmouseover={(e) => {
               if (!isMobile()) {
@@ -88,7 +92,9 @@ export default function CyclePhaseLegend() {
             ></div>
             <div class="min-w-0 flex-1">
               <div class="text-xs font-medium" style={{"color": "var(--text-primary)"}}>{phase.name}</div>
-              <div class="text-xs" style={{"color": "var(--text-secondary)"}}>{phase.description}</div>
+              {!props.compact && (
+                <div class="text-xs" style={{"color": "var(--text-secondary)"}}>{phase.description}</div>
+              )}
             </div>
             {/* Mobile info icon */}
             {isMobile() && (
