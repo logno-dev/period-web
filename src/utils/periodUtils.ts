@@ -76,6 +76,77 @@ export const estimateActivePeriodEndDate = (
   return formatDate(estimatedEndDate);
 };
 
+const DEFAULT_LUTEAL_LENGTH = 12;
+const MIN_LUTEAL_LENGTH = 9;
+const DEFAULT_OVULATION_WINDOW = 4;
+const MIN_OVULATION_WINDOW = 2;
+const MIN_FOLLICULAR_LENGTH = 3;
+
+const getPhaseBoundaries = (
+  cycleLengthInput: number,
+  periodLengthInput: number,
+): {
+  follicularStart: number;
+  ovulationStart: number;
+  ovulationEnd: number;
+  lutealStart: number;
+} => {
+  const cycleLength = Math.max(8, Math.round(cycleLengthInput));
+  const periodLength = Math.max(1, Math.min(Math.round(periodLengthInput), cycleLength - 1));
+
+  const availableDays = Math.max(1, cycleLength - periodLength);
+
+  let ovulationWindow = Math.min(
+    DEFAULT_OVULATION_WINDOW,
+    Math.max(MIN_OVULATION_WINDOW, availableDays - 1),
+  );
+
+  let lutealLength = Math.min(
+    DEFAULT_LUTEAL_LENGTH,
+    Math.max(1, availableDays - ovulationWindow - 1),
+  );
+
+  let follicularLength = availableDays - ovulationWindow - lutealLength;
+
+  if (follicularLength < MIN_FOLLICULAR_LENGTH) {
+    let deficit = MIN_FOLLICULAR_LENGTH - follicularLength;
+
+    const reducibleLuteal = Math.max(0, lutealLength - MIN_LUTEAL_LENGTH);
+    const lutealReduction = Math.min(deficit, reducibleLuteal);
+    lutealLength -= lutealReduction;
+    deficit -= lutealReduction;
+
+    if (deficit > 0) {
+      const reducibleOvulation = Math.max(0, ovulationWindow - MIN_OVULATION_WINDOW);
+      const ovulationReduction = Math.min(deficit, reducibleOvulation);
+      ovulationWindow -= ovulationReduction;
+      deficit -= ovulationReduction;
+    }
+
+    follicularLength = availableDays - ovulationWindow - lutealLength;
+
+    if (deficit > 0 && follicularLength < 1) {
+      const extraLutealReduction = Math.min(1 - follicularLength, Math.max(0, lutealLength - 1));
+      lutealLength -= extraLutealReduction;
+      follicularLength = availableDays - ovulationWindow - lutealLength;
+    }
+  }
+
+  follicularLength = Math.max(1, follicularLength);
+
+  const follicularStart = periodLength + 1;
+  const ovulationStart = follicularStart + follicularLength;
+  const ovulationEnd = ovulationStart + ovulationWindow - 1;
+  const lutealStart = ovulationEnd + 1;
+
+  return {
+    follicularStart,
+    ovulationStart,
+    ovulationEnd,
+    lutealStart,
+  };
+};
+
 export const getCyclePhaseForDate = (
   date: string,
   periods: Period[],
@@ -182,34 +253,10 @@ export const getCyclePhaseForDate = (
     );
   }
 
-  // Calculate phases based on medical research and user's actual data:
-
-  // Luteal phase: Typically 12-14 days, more consistent than follicular phase
-  // Starts right after ovulation and lasts until next period
-  const lutealStart = Math.max(1, Math.round(actualCycleLength - 12));
-  
-  // Ovulation: Peak fertility window is typically 3-4 days around ovulation
-  // Ovulation occurs around 12-14 days before next period
-  const ovulationEnd = lutealStart - 1;
-  const ovulationStart = Math.max(actualPeriodLength + 1, ovulationEnd - 3);
-
-  // Debug logging - log ALL phase calculations for debugging
-  console.log('[Phase Debug]', {
-    date,
-    dayInCycle,
-    actualPeriodLength,
+  const { ovulationStart, ovulationEnd, lutealStart } = getPhaseBoundaries(
     actualCycleLength,
-    ovulationStart,
-    ovulationEnd,
-    lutealStart,
-    referencePeriod: referencePeriod.startDate,
-    nextPeriod: nextPeriod?.startDate,
-    conditions: {
-      isFollicular: `${dayInCycle} > ${actualPeriodLength} && ${dayInCycle} < ${ovulationStart} = ${dayInCycle > actualPeriodLength && dayInCycle < ovulationStart}`,
-      isOvulation: `${dayInCycle} >= ${ovulationStart} && ${dayInCycle} <= ${ovulationEnd} = ${dayInCycle >= ovulationStart && dayInCycle <= ovulationEnd}`,
-      isLuteal: `${dayInCycle} >= ${lutealStart} = ${dayInCycle >= lutealStart}`,
-    }
-  });
+    actualPeriodLength,
+  );
 
   // Determine phase based on day in cycle with medical accuracy
   // Check phases in order: menstrual (already checked), follicular, ovulation, luteal
@@ -240,14 +287,7 @@ export const getCyclePhaseForDate = (
     };
   }
 
-  // Default to follicular if we can't determine (should only happen for days after period but not reaching ovulation)
-  console.log('[Phase Debug] FALLTHROUGH to follicular', {
-    date,
-    dayInCycle,
-    actualPeriodLength,
-    ovulationStart,
-    lutealStart,
-  });
+  // Default to follicular for non-menstrual days before luteal
   return {
     phase: 'follicular',
     dayInCycle,
@@ -338,14 +378,17 @@ export const calculateFertilityEstimateForDate = (
     );
   }
 
-  const lutealStart = Math.max(1, Math.round(actualCycleLength - 12));
-  const ovulationDay = lutealStart - 1;
+  const { ovulationStart, ovulationEnd, lutealStart } = getPhaseBoundaries(
+    actualCycleLength,
+    actualPeriodLength,
+  );
+  const ovulationDay = ovulationEnd;
   const dayFromOvulation = dayInCycle - ovulationDay;
 
   let phase: CyclePhase = 'follicular';
   if (dayInCycle >= lutealStart) {
     phase = 'luteal';
-  } else if (dayInCycle >= ovulationDay - 3 && dayInCycle <= ovulationDay) {
+  } else if (dayInCycle >= ovulationStart && dayInCycle <= ovulationEnd) {
     phase = 'ovulation';
   } else if (dayInCycle <= actualPeriodLength) {
     phase = 'menstrual';

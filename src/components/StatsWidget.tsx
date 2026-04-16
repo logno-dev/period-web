@@ -38,6 +38,8 @@ export default function StatsWidget(props: StatsWidgetProps) {
     return { avgMenstruation, avgCycle };
   });
 
+  const statsNewestFirst = createMemo(() => [...stats()].reverse());
+
   const renderAverageCard = (title: string, value: number, color: string) => (
     <div 
       class="rounded-lg shadow-sm p-3 border-l-4"
@@ -56,7 +58,7 @@ export default function StatsWidget(props: StatsWidgetProps) {
     </div>
   );
 
-  const renderPeriodCard = (stat: PeriodStats, index: number) => (
+  const renderPeriodCard = (stat: PeriodStats) => (
     <div 
       class="rounded-lg shadow-sm border-l-4 mb-3"
       style={{
@@ -67,16 +69,15 @@ export default function StatsWidget(props: StatsWidgetProps) {
     >
       <div class="p-3">
         <div class="flex justify-between items-center mb-2">
-          <h3 class="text-sm font-bold" style={{"color": "var(--text-primary)"}}>Period #{stats().length - index}</h3>
+          <h3 class="text-sm font-bold" style={{"color": "var(--text-primary)"}}>
+            {formatDate(stat.startDate)} - {formatDate(stat.endDate)}
+          </h3>
           <span class="text-sm font-semibold" style={{"color": "var(--accent-color)"}}>
             {stat.lengthInDays} days
           </span>
         </div>
-        <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
-          {formatDate(stat.startDate)} - {formatDate(stat.endDate)}
-        </div>
         <Show when={stat.daysBetweenPeriods !== undefined}>
-          <div class="text-xs mt-1" style={{"color": "var(--text-secondary)"}}>
+          <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
             Cycle: {stat.daysBetweenPeriods} days
           </div>
         </Show>
@@ -136,8 +137,8 @@ export default function StatsWidget(props: StatsWidgetProps) {
             Recent Periods
           </h3>
           <div class="space-y-2 max-h-64 overflow-y-auto">
-            <For each={stats().slice(0, props.compact ? 3 : stats().length)}>
-              {(stat, index) => renderPeriodCard(stat, index())}
+            <For each={statsNewestFirst().slice(0, props.compact ? 3 : statsNewestFirst().length)}>
+              {(stat) => renderPeriodCard(stat)}
             </For>
           </div>
         </div>
