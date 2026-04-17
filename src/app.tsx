@@ -18,7 +18,7 @@ export default function App() {
     <Router
       root={props => (
         <MetaProvider>
-          <Link rel="manifest" href="/manifest.webmanifest" />
+          <Link rel="manifest" href="/_build/manifest.webmanifest" />
           <Meta name="theme-color" content="#0084ce" />
           <Meta name="mobile-web-app-capable" content="yes" />
           <Meta name="apple-mobile-web-app-capable" content="yes" />
