@@ -32,6 +32,6 @@
     "vite-plugin-pwa": "^1.2.0"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }
