@@ -1,6 +1,6 @@
 import { type RouteDefinition, Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
-import { MetaProvider } from "@solidjs/meta";
+import { Link, Meta, MetaProvider } from "@solidjs/meta";
 import { Suspense } from "solid-js";
 import { querySession } from "./auth";
 import Auth from "./components/Context";
@@ -18,6 +18,11 @@ export default function App() {
     <Router
       root={props => (
         <MetaProvider>
+          <Link rel="manifest" href="/manifest.webmanifest" />
+          <Meta name="theme-color" content="#0084ce" />
+          <Meta name="mobile-web-app-capable" content="yes" />
+          <Meta name="apple-mobile-web-app-capable" content="yes" />
+          <Link rel="apple-touch-icon" href="/favicon.svg" />
           <ThemeProvider>
             <Auth>
               <Suspense>
