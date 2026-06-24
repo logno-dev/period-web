@@ -37,6 +37,12 @@ export const calculateDaysBetween = (
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 };
 
+const calculateCycleDayGap = (startDate: string, endDate: string): number => {
+  const start = parseDate(startDate);
+  const end = parseDate(endDate);
+  return Math.round(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+};
+
 export const isDateInPeriod = (date: string, period: Period): boolean => {
   if (!period.endDate) return date === period.startDate;
 
@@ -438,7 +444,7 @@ export const calculateAverageCycleLength = (periods: Period[]): number => {
   for (let i = 1; i < completedPeriods.length; i++) {
     const previousPeriod = completedPeriods[i - 1];
     const currentPeriod = completedPeriods[i];
-    const cycleLength = calculateDaysBetween(
+    const cycleLength = calculateCycleDayGap(
       previousPeriod.startDate,
       currentPeriod.startDate,
     );
@@ -502,7 +508,7 @@ export const calculateNextPeriodPrediction = (
   for (let i = 1; i < completedPeriods.length; i++) {
     const previousPeriod = completedPeriods[i - 1];
     const currentPeriod = completedPeriods[i];
-    const cycleLength = calculateDaysBetween(
+    const cycleLength = calculateCycleDayGap(
       previousPeriod.startDate,
       currentPeriod.startDate,
     );
@@ -518,8 +524,9 @@ export const calculateNextPeriodPrediction = (
 
   // Calculate predicted next period date based on the most recent period
   const predictedDate = new Date(mostRecentStart);
+  const predictedCycleLength = Math.max(1, Math.floor(averageCycleLength));
   predictedDate.setDate(
-    predictedDate.getDate() + Math.round(averageCycleLength),
+    predictedDate.getDate() + predictedCycleLength,
   );
 
   // Calculate days until predicted period

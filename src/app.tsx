@@ -19,10 +19,14 @@ export default function App() {
       root={props => (
         <MetaProvider>
           <Link rel="manifest" href="/_build/manifest.webmanifest" />
+          <Link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+          <Link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+          <Link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
           <Meta name="theme-color" content="#0084ce" />
           <Meta name="mobile-web-app-capable" content="yes" />
           <Meta name="apple-mobile-web-app-capable" content="yes" />
-          <Link rel="apple-touch-icon" href="/favicon.svg" />
+          <Link rel="apple-touch-icon" href="/favicon-180x180.png" />
+          <Link rel="icon" type="image/svg+xml" href="/favicon.svg" />
           <ThemeProvider>
             <Auth>
               <Suspense>

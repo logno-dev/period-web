@@ -3,6 +3,7 @@ import { Show } from "solid-js";
 import { logout } from "~/auth";
 import { useAuth } from "~/components/Context";
 import ThemeToggle from "./ThemeToggle";
+import BrandDot from "./BrandDot";
 
 export default function Header() {
   const { session } = useAuth();
@@ -22,7 +23,7 @@ export default function Header() {
               class="text-xl font-bold hover:opacity-80 transition-opacity"
               style={{ "color": "var(--text-primary)" }}
             >
-              PT
+              <BrandDot label="Period Tracker" size={18} />
             </h1>
           </A>
         </div>

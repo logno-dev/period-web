@@ -6,6 +6,7 @@ import { useAuth } from "~/components/Context";
 import Calendar from "~/components/Calendar";
 import Modal from "~/components/Modal";
 import CyclePhaseLegend from "~/components/CyclePhaseLegend";
+import BrandDot from "~/components/BrandDot";
 import { Period, PeriodPrediction, CalendarMarkedDate, ModalConfig } from "~/types/period";
 import {
   formatDate,
@@ -596,7 +597,9 @@ export default function Home() {
       {/* Header */}
       <div class="bg-pink-500 text-white p-4">
         <div class="flex justify-between items-center">
-          <h1 class="text-xl font-bold">Period Tracker</h1>
+          <h1 class="text-xl font-bold">
+            <BrandDot size={18} />
+          </h1>
           <div class="text-sm">
             Welcome, <span class="font-medium">{session()?.email}</span>
           </div>

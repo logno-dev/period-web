@@ -17,6 +17,7 @@ import {
   checkIfPeriodIsEarly,
   estimateActivePeriodEndDate,
 } from "~/utils/periodUtils";
+import BrandDot from "~/components/BrandDot";
 
 export default function Tracker() {
   // Use a store for modal configuration
@@ -703,7 +704,9 @@ export default function Tracker() {
       {/* Header */}
       <div class="bg-pink-500 text-white p-4">
         <div class="flex justify-between items-center">
-          <h1 class="text-xl font-bold">Period Tracker</h1>
+          <h1 class="text-xl font-bold">
+            <BrandDot size={18} />
+          </h1>
           <div class="flex items-center gap-4">
             <div class="text-sm">
               Welcome, <span class="font-medium">{userEmail()}</span>
