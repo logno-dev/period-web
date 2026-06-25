@@ -473,9 +473,14 @@ export const calculatePeriodStats = (periods: Period[]): PeriodStats[] => {
     let daysBetweenPeriods: number | undefined;
     if (index > 0) {
       const previousPeriod = completedPeriods[index - 1];
-      const daysBetween =
-        calculateDaysBetween(previousPeriod.endDate!, period.startDate) - 1;
-      daysBetweenPeriods = daysBetween;
+      const cycleLength = calculateCycleDayGap(
+        previousPeriod.startDate,
+        period.startDate,
+      );
+
+      // Store cycle length as the gap between period starts
+      // (this is the same definition used by next-period prediction).
+      daysBetweenPeriods = cycleLength;
     }
 
     return {

@@ -21,6 +21,8 @@ export interface PeriodStats {
   startDate: string;
   endDate: string;
   lengthInDays: number;
+
+  // Average-cycle metric stored per cycle (period start to next period start).
   daysBetweenPeriods?: number;
 }
 

@@ -78,7 +78,7 @@ export default function StatsWidget(props: StatsWidgetProps) {
         </div>
         <Show when={stat.daysBetweenPeriods !== undefined}>
           <div class="text-xs" style={{"color": "var(--text-secondary)"}}>
-            Cycle: {stat.daysBetweenPeriods} days
+            Cycle Length: {stat.daysBetweenPeriods} days
           </div>
         </Show>
       </div>
