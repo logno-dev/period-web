@@ -75,6 +75,54 @@ export default function Settings() {
     }
   };
 
+  const clearAndReregisterServiceWorker = async (): Promise<ServiceWorkerRegistration | null> => {
+    if (!('serviceWorker' in navigator)) {
+      return null;
+    }
+
+    try {
+      const registrations = await waitWithTimeout(navigator.serviceWorker.getRegistrations(), 2500);
+      if (Array.isArray(registrations) && registrations.length > 0) {
+        await Promise.all(registrations.map(async (registration) => {
+          try {
+            await registration.unregister();
+          } catch {
+            // no-op
+          }
+        }));
+      }
+
+      return await registerServiceWorker();
+    } catch {
+      return null;
+    }
+  };
+
+  const ensureServiceWorkerControlOrReload = async (): Promise<boolean> => {
+    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+      return false;
+    }
+
+    const recoveryAttempted = sessionStorage.getItem('pt-sw-controller-retry');
+    if (recoveryAttempted) {
+      return false;
+    }
+
+    sessionStorage.setItem('pt-sw-controller-retry', '1');
+    const registration = await clearAndReregisterServiceWorker();
+    if (!registration) {
+      return false;
+    }
+
+    await waitForServiceWorkerActivation(registration, 3000);
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 200);
+
+    return true;
+  };
+
   const waitForServiceWorkerActivation = async (
     registration: ServiceWorkerRegistration,
     timeoutMs = 3000
@@ -115,35 +163,6 @@ export default function Settings() {
     });
   };
 
-  const waitForServiceWorkerController = async (timeoutMs = 3000): Promise<boolean> => {
-    if (!('serviceWorker' in navigator)) {
-      return false;
-    }
-
-    if (navigator.serviceWorker.controller) {
-      return true;
-    }
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve(false);
-      }, timeoutMs);
-
-      const onControllerChange = () => {
-        cleanup();
-        resolve(Boolean(navigator.serviceWorker.controller));
-      };
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
-      };
-
-      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
-    });
-  };
-
   const waitForServiceWorkerReady = async (timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> => {
     if (!('serviceWorker' in navigator)) {
       return null;
@@ -157,10 +176,11 @@ export default function Settings() {
 
     await waitForServiceWorkerActivation(registration, Math.min(timeoutMs, 3000));
 
-    if (!navigator.serviceWorker.controller) {
-      const hasController = await waitForServiceWorkerController(Math.min(timeoutMs, 2000));
-      if (!hasController) {
-        console.warn('Service worker is not controlling the current page yet.');
+    if (navigator.serviceWorker.controller && typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('pt-sw-controller-retry');
+      } catch {
+        // no-op
       }
     }
 
@@ -681,13 +701,14 @@ export default function Settings() {
           return;
         }
 
-        if (!registration.active || !navigator.serviceWorker.controller) {
+        if (!registration.active) {
           const env = summarizePushEnvironment();
           showStatusMessage(
             "Unable to save push settings",
             "error",
-            `Service worker is not actively controlling this page yet. ` +
-            `Reopen the app and try again. PWA=${env.isPwa} secure=${env.isSecureContext} ` +
+            `Service worker is not active yet. ` +
+            `Reopen the app and try again if this continues. ` +
+            `PWA=${env.isPwa} secure=${env.isSecureContext} ` +
             `serviceWorker=${env.hasServiceWorker} pushManager=${env.hasPushManager} ` +
             `controller=${env.hasController}`
           );
@@ -845,11 +866,20 @@ export default function Settings() {
       }
 
       if (!navigator.serviceWorker.controller) {
-        return {
-          success: false,
-          subscription: null,
-          errorReason: 'Service worker is installed but does not control this page yet. Please reopen the app and try again.'
-        };
+        const willReload = await ensureServiceWorkerControlOrReload();
+        if (willReload) {
+          return {
+            success: false,
+            subscription: null,
+            errorReason: 'Service worker was not controlling this page. Resetting and reloading to apply the service worker.'
+          };
+        }
+
+        showStatusMessage(
+          "Service worker installed but not controlling this page",
+          "info",
+          "Push setup may still succeed. If this repeats, this installed shell is not taking control of the current page."
+        );
       }
 
       const existing = await registration.pushManager.getSubscription();
