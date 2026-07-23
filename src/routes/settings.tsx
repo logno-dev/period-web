@@ -77,6 +77,35 @@ export default function Settings() {
     }
   };
 
+  const waitForServiceWorkerController = async (timeoutMs = 3000): Promise<boolean> => {
+    if (!('serviceWorker' in navigator)) {
+      return false;
+    }
+
+    if (navigator.serviceWorker.controller) {
+      return true;
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve(false);
+      }, timeoutMs);
+
+      const onControllerChange = () => {
+        cleanup();
+        resolve(Boolean(navigator.serviceWorker.controller));
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      };
+
+      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    });
+  };
+
   const waitForServiceWorkerReady = async (timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> => {
     if (!('serviceWorker' in navigator)) {
       return null;
@@ -91,6 +120,12 @@ export default function Settings() {
       navigator.serviceWorker.ready
         .then(async (registration) => {
           clearTimeout(timeout);
+          if (!navigator.serviceWorker.controller) {
+            const hasController = await waitForServiceWorkerController(Math.min(timeoutMs, 3000));
+            if (!hasController) {
+              console.warn('Service worker registered but controller is not available yet.');
+            }
+          }
           resolve(registration);
         })
         .catch(async () => {
@@ -98,6 +133,12 @@ export default function Settings() {
 
           const fallback = await getExistingServiceWorkerRegistration();
           if (fallback) {
+            if (!navigator.serviceWorker.controller) {
+              const hasController = await waitForServiceWorkerController(Math.min(timeoutMs, 3000));
+              if (!hasController) {
+                console.warn('Service worker fallback registration found, but controller is not available yet.');
+              }
+            }
             resolve(fallback);
             return;
           }
@@ -762,6 +803,18 @@ export default function Settings() {
           errorReason: `Could not resolve service worker registration. isPwa=${env.isPwa}, secure=${env.isSecureContext}, serviceWorker=${env.hasServiceWorker}, pushManager=${env.hasPushManager}, controller=${env.hasController}`
         };
       }
+
+      if (!navigator.serviceWorker.controller) {
+        const hadController = await waitForServiceWorkerController(3000);
+        if (!hadController) {
+          return {
+            success: false,
+            subscription: null,
+            errorReason: "Service worker registration is available, but this page is not yet controlled. Please reopen the app and try again."
+          };
+        }
+      }
+
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
         const existingPayload = normalizePushSubscriptionPayload(existing);
