@@ -66,6 +66,19 @@ function toBase64(value: unknown): string | null {
 }
 
 function normalizePushSubscription(payload: unknown): NormalizedPushSubscription | null {
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      payload = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
   if (!payload || typeof payload !== 'object') {
     return null;
   }
@@ -306,12 +319,21 @@ export async function POST(event: { request: Request }) {
         : userSettings.notificationsEnabled;
 
     const pushEnabled = Boolean(pushNotificationsEnabled);
-    const normalizedPushSubscription =
+    let normalizedPushSubscription =
       pushEnabled
         ? normalizePushSubscription(pushSubscription)
         : null;
 
+    if (pushEnabled && !normalizedPushSubscription && userSettings.pushSubscription) {
+      normalizedPushSubscription = normalizePushSubscription(userSettings.pushSubscription);
+    }
+
     if (pushEnabled && !normalizedPushSubscription) {
+      console.warn("Invalid push subscription format provided while enabling notifications", {
+        userId: resolvedUserId,
+        hasPushPayload,
+        hasPushSubscription: pushSubscription !== undefined,
+      });
       return new Response("Invalid push subscription format", { status: 400 });
     }
 
