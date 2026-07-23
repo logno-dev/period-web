@@ -13,6 +13,37 @@ type PushSubscriptionBody = {
   };
 };
 
+type SessionData = {
+  id: number;
+  email: string;
+};
+
+async function resolveSessionUserId(session: SessionData): Promise<number | null> {
+  const numericId = Number(session.id);
+
+  if (Number.isFinite(numericId)) {
+    const exactMatch = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, numericId))
+      .limit(1);
+
+    if (exactMatch.length > 0) {
+      return exactMatch[0].id;
+    }
+  }
+
+  if (!session.email) {
+    return null;
+  }
+
+  const byEmail = await db.select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, session.email))
+    .limit(1);
+
+  return byEmail.length > 0 ? byEmail[0].id : null;
+}
+
 function parseNotificationEmails(rawEmails: unknown): string[] {
   if (!rawEmails || typeof rawEmails !== 'string') {
     return [];
@@ -62,10 +93,15 @@ export async function GET() {
   }
 
   try {
+    const resolvedUserId = await resolveSessionUserId(session);
+    if (!resolvedUserId) {
+      return new Response("User not found", { status: 404 });
+    }
+
     try {
       const user = await db.select()
         .from(users)
-        .where(eq(users.id, session.id))
+        .where(eq(users.id, resolvedUserId))
         .limit(1);
 
       if (user.length === 0) {
@@ -92,7 +128,7 @@ export async function GET() {
         timezone: users.timezone
       })
         .from(users)
-        .where(eq(users.id, session.id))
+        .where(eq(users.id, resolvedUserId))
         .limit(1);
 
       if (fallback.length === 0) {
@@ -155,6 +191,11 @@ export async function POST(event: { request: Request }) {
       return new Response("Invalid timezone format", { status: 400 });
     }
 
+    const resolvedUserId = await resolveSessionUserId(session);
+    if (!resolvedUserId) {
+      return new Response("User not found", { status: 404 });
+    }
+
     const hasPushPayload =
       pushNotificationsEnabled !== undefined || pushSubscription !== undefined;
 
@@ -165,7 +206,7 @@ export async function POST(event: { request: Request }) {
         timezone: users.timezone
       })
         .from(users)
-        .where(eq(users.id, session.id))
+        .where(eq(users.id, resolvedUserId))
         .limit(1);
 
       if (user.length === 0) {
@@ -195,14 +236,14 @@ export async function POST(event: { request: Request }) {
           timezone: nextTimezone,
           updatedAt: new Date()
         })
-        .where(eq(users.id, session.id));
+        .where(eq(users.id, resolvedUserId));
 
       return json({ success: true });
     }
 
     const user = await db.select()
       .from(users)
-      .where(eq(users.id, session.id))
+      .where(eq(users.id, resolvedUserId))
       .limit(1);
 
     if (user.length === 0) {
@@ -247,7 +288,7 @@ export async function POST(event: { request: Request }) {
     try {
       await db.update(users)
         .set(updateValues)
-        .where(eq(users.id, session.id));
+        .where(eq(users.id, resolvedUserId));
     } catch (error) {
       if (isMissingPushColumnsError(error)) {
         return new Response(
