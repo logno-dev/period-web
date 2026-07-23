@@ -9,11 +9,13 @@ export default function Settings() {
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = createSignal(false);
   const [notificationEmails, setNotificationEmails] = createSignal<string[]>([]);
   const [timezone, setTimezone] = createSignal("America/Los_Angeles");
+  const [timezoneDirty, setTimezoneDirty] = createSignal(false);
   const [isPwa, setIsPwa] = createSignal(false);
   const [pushPermissionGranted, setPushPermissionGranted] = createSignal(false);
   const [newEmail, setNewEmail] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [message, setMessage] = createSignal("");
+  const [timezoneLoaded, setTimezoneLoaded] = createSignal(false);
 
   const waitForServiceWorkerReady = async (timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> => {
     if (!('serviceWorker' in navigator)) {
@@ -55,17 +57,21 @@ export default function Settings() {
     async (userId) => {
       if (!userId) return null;
       const response = await fetch(`/api/user-settings?userId=${userId}`);
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Loaded user settings:', data);
-          setNotificationsEnabled(data.notificationsEnabled);
-          setPushNotificationsEnabled(data.pushNotificationsEnabled);
-          setNotificationEmails(data.notificationEmails || []);
-          setTimezone(data.timezone || "America/Los_Angeles");
-          console.log('Timezone set to:', data.timezone || "America/Los_Angeles");
-        return data;
+      if (!response.ok) {
+        setTimezoneLoaded(false);
+        return null;
       }
-      return null;
+
+      const data = await response.json();
+      console.log('Loaded user settings:', data);
+      setNotificationsEnabled(data.notificationsEnabled);
+      setPushNotificationsEnabled(data.pushNotificationsEnabled);
+      setNotificationEmails(data.notificationEmails || []);
+      setTimezone(data.timezone || "America/Los_Angeles");
+      setTimezoneDirty(false);
+      setTimezoneLoaded(true);
+      console.log('Timezone set to:', data.timezone || "America/Los_Angeles");
+      return data;
     }
   );
 
@@ -234,9 +240,31 @@ export default function Settings() {
     }
   };
 
+  const summarizePayloadForDebug = (payload: Record<string, unknown>) => {
+    try {
+      return JSON.stringify(payload, (_key, value) => {
+        if (value instanceof Date) {
+          return value.toISOString();
+        }
+
+        if (value instanceof PushSubscription) {
+          return summarizePushSubscription(value);
+        }
+
+        return value;
+      }, 2);
+    } catch {
+      return JSON.stringify({
+        keys: Object.keys(payload),
+        error: "Unable to stringify payload"
+      });
+    }
+  };
+
   const saveSettings = async (options?: {
     pushEnabled?: boolean;
     pushSub?: PushSubscription | null;
+    includeTimezone?: boolean;
   }) => {
     if (!session()?.id) return;
     
@@ -314,18 +342,25 @@ export default function Settings() {
             ? null
             : serializedPushSub;
 
+      const shouldIncludeTimezone = options?.includeTimezone !== false;
+
       const payload: Record<string, unknown> = {
         userId: session()?.id,
         notificationsEnabled: notificationsEnabled(),
         notificationEmails: notificationEmails(),
-        timezone: timezone()
       };
+
+      if (shouldIncludeTimezone && timezoneLoaded() && timezoneDirty()) {
+        payload.timezone = timezone();
+        setTimezoneDirty(false);
+      }
 
       if (options !== undefined) {
         payload.pushNotificationsEnabled = options?.pushEnabled ?? pushNotificationsEnabled();
         payload.pushSubscription = pushSubscription;
       }
-      console.log('Saving settings:', payload);
+      const payloadSummary = summarizePayloadForDebug(payload);
+      console.log('Saving settings payload:', payloadSummary);
       
       const controller = new AbortController();
       const timeout = setTimeout(() => {
@@ -350,23 +385,25 @@ export default function Settings() {
         const parsedError = await parseErrorPayload(response);
         console.error('Save failed:', parsedError);
 
-        let debugDetails = "";
-        if (hasPushOptions) {
-          const pushContext = await collectPushErrorContext({
-            pushEnabled: options?.pushEnabled,
-            pushSub: options?.pushSub ?? null,
-            pushSubSerialized: pushSubscription
-          });
+          let debugDetails = "";
+          if (hasPushOptions && options?.pushEnabled === true) {
+            const pushContext = await collectPushErrorContext({
+              pushEnabled: options?.pushEnabled,
+              pushSub: options?.pushSub ?? null,
+              pushSubSerialized: pushSubscription
+            });
 
-          debugDetails = ` | Context: ${JSON.stringify(pushContext)}`;
-        }
+            debugDetails = ` | Context: ${JSON.stringify(pushContext)}`;
+          } else if (hasPushOptions && options?.pushEnabled === false) {
+            debugDetails = " | Context: pushNotificationsEnabled=false (payload intentionally null)";
+          }
 
         const details =
           (parsedError.details && typeof parsedError.details === 'object' && 'details' in (parsedError.details as Record<string, unknown>))
             ? ` Details: ${JSON.stringify((parsedError.details as { details?: unknown }).details)}`
             : '';
 
-        setMessage(`Failed to save settings: ${parsedError.message}${details}${debugDetails}`);
+        setMessage(`Failed to save settings: ${parsedError.message}${details}${debugDetails} | Payload: ${payloadSummary}`);
       }
     } catch (error) {
       console.error('Save error:', error);
@@ -446,7 +483,7 @@ export default function Settings() {
       if (existing) {
         await existing.unsubscribe();
       }
-      await saveSettings({ pushEnabled: false, pushSub: null });
+      await saveSettings({ pushEnabled: false, pushSub: null, includeTimezone: false });
       return;
     }
 
@@ -459,7 +496,8 @@ export default function Settings() {
 
     await saveSettings({
       pushEnabled: true,
-      pushSub: subscription
+      pushSub: subscription,
+      includeTimezone: false
     });
   };
 
@@ -576,10 +614,13 @@ export default function Settings() {
               <p class="text-sm mb-4" style={{"color": "var(--text-secondary)"}}>
                 Set your timezone for accurate predictions and notifications
               </p>
-              <select
-                value={timezone()}
-                onChange={(e) => setTimezone(e.target.value)}
-                class="w-full px-3 py-2 border rounded-md"
+                <select
+                  value={timezone()}
+                  onChange={(e) => {
+                    setTimezone(e.target.value);
+                    setTimezoneDirty(true);
+                  }}
+                  class="w-full px-3 py-2 border rounded-md"
                 style={{
                   "background-color": "var(--bg-primary)",
                   "border-color": "var(--border-color)",
