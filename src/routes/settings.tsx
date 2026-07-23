@@ -289,6 +289,28 @@ export default function Settings() {
         }
       }, autoClearMs);
     }
+
+    const normalizedText = text.toLowerCase();
+    const normalizedDetails = details.toLowerCase();
+
+    if (
+      type === "error" &&
+      typeof window !== 'undefined' &&
+      window.alert &&
+      (normalizedText.includes("push") || normalizedText.includes("subscription") || normalizedDetails.includes("push"))
+    ) {
+      const detailText = details.trim();
+      const alertBody = detailText ? `${text}\n\n${detailText}` : text;
+      setTimeout(() => {
+        if (message() === text && messageType() === "error") {
+          try {
+            window.alert(alertBody);
+          } catch {
+            // no-op
+          }
+        }
+      }, 10);
+    }
   };
 
   const copyMessageDetails = async () => {
@@ -430,9 +452,19 @@ export default function Settings() {
     };
   };
 
+  type NormalizedPushPayload = {
+    endpoint: string;
+    expirationTime: number | null;
+    keys: {
+      p256dh: string;
+      auth: string;
+    }
+  };
+
   const saveSettings = async (options?: {
     pushEnabled?: boolean;
     pushSub?: PushSubscription | null;
+    pushSubPayload?: NormalizedPushPayload | null;
     includeTimezone?: boolean;
   }) => {
     if (!session()?.id) return;
@@ -443,47 +475,42 @@ export default function Settings() {
     try {
       const hasPushOptions = options !== undefined;
       const pushEnabled = options?.pushEnabled ?? pushNotificationsEnabled();
-      let pushSubFromOptions = options?.pushSub ?? null;
 
-      if (hasPushOptions && pushEnabled && !pushSubFromOptions) {
+      let pushSubscriptionPayload: NormalizedPushPayload | null =
+        options?.pushSubPayload ?? null;
+
+      if (hasPushOptions && pushEnabled && !pushSubscriptionPayload) {
+        const candidate = options?.pushSub ?? null;
+        pushSubscriptionPayload = normalizePushSubscriptionPayload(candidate);
+      }
+
+      if (hasPushOptions && pushEnabled && !pushSubscriptionPayload) {
         const registration = await waitForServiceWorkerReady(5000);
 
         if (!registration) {
           showStatusMessage(
             "Unable to save push settings",
             "error",
-            "No push subscription object was provided and no active service worker registration was found."
+            "Could not access the service worker registration while enabling notifications."
           );
           setSaving(false);
           return;
         }
 
         const existing = await registration.pushManager.getSubscription();
-        if (!existing) {
+        if (existing) {
+          pushSubscriptionPayload = normalizePushSubscriptionPayload(existing);
+        }
+
+        if (!pushSubscriptionPayload) {
           showStatusMessage(
             "Unable to save push settings",
             "error",
-            "No active push subscription was found in the service worker while enabling notifications."
+            "No push subscription was found while enabling notifications."
           );
           setSaving(false);
           return;
         }
-
-        pushSubFromOptions = existing;
-      }
-
-      const serializedPushSub = normalizePushSubscriptionPayload(pushSubFromOptions);
-
-      if (hasPushOptions && pushEnabled && !serializedPushSub) {
-        showStatusMessage(
-          "Unable to serialize push subscription",
-          "error",
-          `Push subscription could not be normalized. Summary: ${JSON.stringify(
-            summarizePushSubscription(pushSubFromOptions)
-          )}`
-        );
-        setSaving(false);
-        return;
       }
 
       const pushSubscription =
@@ -491,7 +518,7 @@ export default function Settings() {
           ? undefined
           : pushEnabled === false
             ? null
-            : serializedPushSub;
+            : pushSubscriptionPayload;
 
       const shouldIncludeTimezone = options?.includeTimezone !== false;
 
@@ -539,7 +566,7 @@ export default function Settings() {
            if (hasPushOptions && pushEnabled) {
             const pushContext = await collectPushErrorContext({
               pushEnabled,
-              pushSub: pushSubFromOptions,
+              pushSub: options?.pushSub ?? null,
               pushSubSerialized: pushSubscription
             });
 
@@ -571,7 +598,11 @@ export default function Settings() {
     }
   };
 
-  const subscribeToPush = async (): Promise<{ success: boolean; subscription: PushSubscription | null }> => {
+  const subscribeToPush = async (): Promise<{
+    success: boolean;
+    subscription: PushSubscription | null;
+    pushSubscriptionPayload?: NormalizedPushPayload | null;
+  }> => {
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         return { success: false, subscription: null };
@@ -596,7 +627,11 @@ export default function Settings() {
       if (existing) {
         const existingPayload = normalizePushSubscriptionPayload(existing);
         if (existingPayload) {
-          return { success: true, subscription: existing };
+          return {
+            success: true,
+            subscription: existing,
+            pushSubscriptionPayload: existingPayload
+          };
         }
 
         await existing.unsubscribe();
@@ -620,13 +655,17 @@ export default function Settings() {
       const normalized = normalizePushSubscriptionPayload(subscription);
       if (!normalized) {
         await subscription.unsubscribe();
-        return { success: false, subscription: null };
+        return { success: false, subscription: null, pushSubscriptionPayload: null };
       }
 
-      return { success: true, subscription };
+      return {
+        success: true,
+        subscription,
+        pushSubscriptionPayload: normalized
+      };
     } catch (error) {
       console.error('Failed to subscribe to push notifications:', error);
-      return { success: false, subscription: null };
+      return { success: false, subscription: null, pushSubscriptionPayload: null };
     }
   };
 
@@ -652,7 +691,7 @@ export default function Settings() {
       return;
     }
 
-    const { success, subscription } = await subscribeToPush();
+    const { success, subscription, pushSubscriptionPayload } = await subscribeToPush();
     if (!success || !subscription) {
       setPushNotificationsEnabled(false);
       showStatusMessage("Enable browser notifications to receive push reminders", "error");
@@ -662,6 +701,7 @@ export default function Settings() {
     await saveSettings({
       pushEnabled: true,
       pushSub: subscription,
+      pushSubPayload: pushSubscriptionPayload ?? null,
       includeTimezone: false
     });
   };
