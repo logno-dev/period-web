@@ -443,23 +443,44 @@ export default function Settings() {
     try {
       const hasPushOptions = options !== undefined;
       const pushEnabled = options?.pushEnabled ?? pushNotificationsEnabled();
-      const serializedPushSub = normalizePushSubscriptionPayload(options?.pushSub ?? null);
+      let pushSubFromOptions = options?.pushSub ?? null;
 
-      if (hasPushOptions && pushEnabled && !options?.pushSub) {
-        showStatusMessage(
-          "Unable to save push settings",
-          "error",
-          "No push subscription object was provided while enabling notifications."
-        );
-        setSaving(false);
-        return;
+      if (hasPushOptions && pushEnabled && !pushSubFromOptions) {
+        const registration = await waitForServiceWorkerReady(5000);
+
+        if (!registration) {
+          showStatusMessage(
+            "Unable to save push settings",
+            "error",
+            "No push subscription object was provided and no active service worker registration was found."
+          );
+          setSaving(false);
+          return;
+        }
+
+        const existing = await registration.pushManager.getSubscription();
+        if (!existing) {
+          showStatusMessage(
+            "Unable to save push settings",
+            "error",
+            "No active push subscription was found in the service worker while enabling notifications."
+          );
+          setSaving(false);
+          return;
+        }
+
+        pushSubFromOptions = existing;
       }
+
+      const serializedPushSub = normalizePushSubscriptionPayload(pushSubFromOptions);
 
       if (hasPushOptions && pushEnabled && !serializedPushSub) {
         showStatusMessage(
           "Unable to serialize push subscription",
           "error",
-          `Push subscription could not be normalized. Summary: ${JSON.stringify(summarizePushSubscription(options?.pushSub ?? null))}`
+          `Push subscription could not be normalized. Summary: ${JSON.stringify(
+            summarizePushSubscription(pushSubFromOptions)
+          )}`
         );
         setSaving(false);
         return;
@@ -518,7 +539,7 @@ export default function Settings() {
            if (hasPushOptions && pushEnabled) {
             const pushContext = await collectPushErrorContext({
               pushEnabled,
-              pushSub: options?.pushSub ?? null,
+              pushSub: pushSubFromOptions,
               pushSubSerialized: pushSubscription
             });
 
