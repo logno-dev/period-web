@@ -25,14 +25,18 @@ export default defineConfig({
           "favicon-512x512.png"
         ],
         manifest: {
+          id: "/",
           name: "Period Tracker",
           short_name: "Period",
           description: "Track cycles, symptoms, and period predictions.",
           start_url: "/",
+          display_override: ["standalone", "minimal-ui", "browser"],
           scope: "/",
           display: "standalone",
           background_color: "#f5f9ff",
           theme_color: "#0084ce",
+          orientation: "portrait",
+          categories: ["health", "lifestyle"],
           icons: [
             {
               src: "/favicon-16x16.png",
@@ -67,13 +71,13 @@ export default defineConfig({
               src: "/favicon-192x192.png",
               sizes: "192x192",
               type: "image/png",
-              purpose: "any"
+              purpose: "any maskable"
             },
             {
               src: "/favicon-512x512.png",
               sizes: "512x512",
               type: "image/png",
-              purpose: "any"
+              purpose: "any maskable"
             }
           ]
         }

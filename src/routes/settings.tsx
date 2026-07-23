@@ -20,6 +20,63 @@ export default function Settings() {
   const [copiedDetails, setCopiedDetails] = createSignal(false);
   const [timezoneLoaded, setTimezoneLoaded] = createSignal(false);
 
+  async function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        clearTimeout(timeout);
+        resolve(null);
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        })
+        .catch(() => {
+          clearTimeout(timeout);
+          resolve(null);
+        });
+    });
+  }
+
+  const getExistingServiceWorkerRegistration = async (): Promise<ServiceWorkerRegistration | null> => {
+    if (!('serviceWorker' in navigator)) {
+      return null;
+    }
+
+    const direct = await waitWithTimeout(navigator.serviceWorker.getRegistration(), 2000);
+    if (direct) {
+      return direct;
+    }
+
+    if (typeof navigator.serviceWorker.getRegistrations !== 'undefined') {
+      const registrations = await waitWithTimeout(navigator.serviceWorker.getRegistrations(), 2000);
+      if (Array.isArray(registrations) && registrations.length > 0) {
+        return registrations[0];
+      }
+    }
+
+    return null;
+  };
+
+  const registerServiceWorker = async (): Promise<ServiceWorkerRegistration | null> => {
+    if (!('serviceWorker' in navigator)) {
+      return null;
+    }
+
+    try {
+      const existing = await getExistingServiceWorkerRegistration();
+      if (existing) {
+        return existing;
+      }
+
+      const serviceWorkerUrl = `${window.location.origin}/sw.js`;
+      return await navigator.serviceWorker.register(serviceWorkerUrl, { scope: '/' });
+    } catch {
+      return null;
+    }
+  };
+
   const waitForServiceWorkerReady = async (timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> => {
     if (!('serviceWorker' in navigator)) {
       return null;
@@ -32,13 +89,21 @@ export default function Settings() {
       }, timeoutMs);
 
       navigator.serviceWorker.ready
-        .then((registration) => {
+        .then(async (registration) => {
           clearTimeout(timeout);
           resolve(registration);
         })
-        .catch(() => {
+        .catch(async () => {
           clearTimeout(timeout);
-          resolve(null);
+
+          const fallback = await getExistingServiceWorkerRegistration();
+          if (fallback) {
+            resolve(fallback);
+            return;
+          }
+
+          const registered = await registerServiceWorker();
+          resolve(registered);
         });
     });
   };
@@ -46,8 +111,11 @@ export default function Settings() {
   createEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const isStandalone = window.matchMedia("(display-mode: standalone)").matches
-      || (window.navigator as { standalone?: boolean }).standalone === true;
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      window.matchMedia("(display-mode: fullscreen)").matches ||
+      window.matchMedia("(display-mode: minimal-ui)").matches ||
+      (window.navigator as { standalone?: boolean }).standalone === true;
     setIsPwa(isStandalone);
     if (typeof Notification !== 'undefined') {
       setPushPermissionGranted(Notification.permission === 'granted');
@@ -461,6 +529,60 @@ export default function Settings() {
     }
   };
 
+  const summarizePushEnvironment = () => {
+    if (typeof window === 'undefined') {
+      return {
+        canAccessWindow: false,
+        isPwa: false,
+        isSecureContext: false,
+        hasServiceWorker: false,
+        hasPushManager: false,
+        registrationCountKnown: false,
+        hasController: false,
+        pushPermission: 'not-available',
+      };
+    }
+
+    const summary = {
+      canAccessWindow: true,
+      isPwa: isPwa(),
+      isSecureContext: window.isSecureContext,
+      hasServiceWorker: 'serviceWorker' in navigator,
+      hasPushManager: 'PushManager' in window,
+      registrationCountKnown: false,
+      registrationCount: 0,
+      hasController: !!navigator.serviceWorker?.controller,
+      pushPermission: typeof Notification === 'undefined' ? 'not-available' : Notification.permission,
+      hasScopeMismatch: false,
+    } as {
+      canAccessWindow: boolean;
+      isPwa: boolean;
+      isSecureContext: boolean;
+      hasServiceWorker: boolean;
+      hasPushManager: boolean;
+      registrationCountKnown: boolean;
+      registrationCount?: number;
+      hasController: boolean;
+      pushPermission: string;
+      hasScopeMismatch: boolean;
+    };
+
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'getRegistrations' in navigator.serviceWorker) {
+      // Best effort; ignore errors so this helper cannot fail the main flow.
+      navigator.serviceWorker.getRegistrations()
+        .then((registrations) => {
+          summary.registrationCountKnown = true;
+          summary.registrationCount = registrations.length;
+          summary.hasScopeMismatch = registrations.some((registration) => registration.scope !== window.location.origin + '/');
+        })
+        .catch(() => {
+          summary.registrationCountKnown = false;
+        });
+    }
+
+    return summary;
+  };
+
   const saveSettings = async (options?: {
     pushEnabled?: boolean;
     pushSub?: PushSubscription | null;
@@ -488,10 +610,13 @@ export default function Settings() {
         const registration = await waitForServiceWorkerReady(5000);
 
         if (!registration) {
+          const env = summarizePushEnvironment();
           showStatusMessage(
             "Unable to save push settings",
             "error",
-            "Could not access the service worker registration while enabling notifications."
+            `Could not access the service worker registration while enabling notifications.\n\n` +
+            `PWA=${env.isPwa} secure=${env.isSecureContext} serviceWorker=${env.hasServiceWorker} ` +
+            `pushManager=${env.hasPushManager} controller=${env.hasController} permission=${env.pushPermission}`
           );
           setSaving(false);
           return;
@@ -562,23 +687,23 @@ export default function Settings() {
         const parsedError = await parseErrorPayload(response);
         console.error('Save failed:', parsedError);
 
-          let debugDetails = "";
-           if (hasPushOptions && pushEnabled) {
-            const pushContext = await collectPushErrorContext({
-              pushEnabled,
-              pushSub: options?.pushSub ?? null,
-              pushSubSerialized: pushSubscription
-            });
+        let debugDetails = "";
+        if (hasPushOptions && pushEnabled) {
+          const pushContext = await collectPushErrorContext({
+            pushEnabled,
+            pushSub: options?.pushSub ?? null,
+            pushSubSerialized: pushSubscription
+          });
 
-            debugDetails = ` | Context: ${JSON.stringify(pushContext)}`;
-          } else if (hasPushOptions && options?.pushEnabled === false) {
-            debugDetails = " | Context: pushNotificationsEnabled=false (payload intentionally null)";
-          }
+          debugDetails = ` | Context: ${JSON.stringify(pushContext)}`;
+        } else if (hasPushOptions && options?.pushEnabled === false) {
+          debugDetails = " | Context: pushNotificationsEnabled=false (payload intentionally null)";
+        }
 
-            const details =
-              (parsedError.details && typeof parsedError.details === 'object' && 'details' in (parsedError.details as Record<string, unknown>))
-                ? ` Details: ${JSON.stringify((parsedError.details as { details?: unknown }).details)}`
-                : '';
+        const details =
+          (parsedError.details && typeof parsedError.details === 'object' && 'details' in (parsedError.details as Record<string, unknown>))
+            ? ` Details: ${JSON.stringify((parsedError.details as { details?: unknown }).details)}`
+            : '';
 
         showStatusMessage(
           `Failed to save settings: ${parsedError.message}`,
@@ -602,26 +727,40 @@ export default function Settings() {
     success: boolean;
     subscription: PushSubscription | null;
     pushSubscriptionPayload?: NormalizedPushPayload | null;
+    errorReason?: string;
   }> => {
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        return { success: false, subscription: null };
+        return {
+          success: false,
+          subscription: null,
+          errorReason: "Service worker or PushManager is not available in this environment."
+        };
       }
 
       if (typeof Notification === 'undefined') {
-        return { success: false, subscription: null };
+        return { success: false, subscription: null, errorReason: "Notification API is not available in this environment." };
       }
 
       const permission = await Notification.requestPermission();
       setPushPermissionGranted(permission === 'granted');
 
       if (permission !== 'granted') {
-        return { success: false, subscription: null };
+        return {
+          success: false,
+          subscription: null,
+          errorReason: "Notification permission was not granted."
+        };
       }
 
-      const registration = await waitForServiceWorkerReady(8000);
+      const registration = await waitForServiceWorkerReady(10000);
       if (!registration) {
-        return { success: false, subscription: null };
+        const env = summarizePushEnvironment();
+        return {
+          success: false,
+          subscription: null,
+          errorReason: `Could not resolve service worker registration. isPwa=${env.isPwa}, secure=${env.isSecureContext}, serviceWorker=${env.hasServiceWorker}, pushManager=${env.hasPushManager}, controller=${env.hasController}`
+        };
       }
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
@@ -639,12 +778,20 @@ export default function Settings() {
 
       const keyResponse = await fetch('/api/push/vapid-public-key');
       if (!keyResponse.ok) {
-        return { success: false, subscription: null };
+        return {
+          success: false,
+          subscription: null,
+          errorReason: `Failed to load VAPID key (${keyResponse.status}).`
+        };
       }
 
       const keyData = await keyResponse.json();
       if (!keyData?.success || !keyData.publicKey) {
-        return { success: false, subscription: null };
+        return {
+          success: false,
+          subscription: null,
+          errorReason: "VAPID key endpoint did not return a usable public key."
+        };
       }
 
       const subscription = await registration.pushManager.subscribe({
@@ -655,7 +802,12 @@ export default function Settings() {
       const normalized = normalizePushSubscriptionPayload(subscription);
       if (!normalized) {
         await subscription.unsubscribe();
-        return { success: false, subscription: null, pushSubscriptionPayload: null };
+        return {
+          success: false,
+          subscription: null,
+          pushSubscriptionPayload: null,
+          errorReason: "Push subscription was created, but could not be normalized for save." 
+        };
       }
 
       return {
@@ -665,7 +817,12 @@ export default function Settings() {
       };
     } catch (error) {
       console.error('Failed to subscribe to push notifications:', error);
-      return { success: false, subscription: null, pushSubscriptionPayload: null };
+      return {
+        success: false,
+        subscription: null,
+        pushSubscriptionPayload: null,
+        errorReason: error instanceof Error ? error.message : "Failed to subscribe to push notifications"
+      };
     }
   };
 
@@ -680,7 +837,12 @@ export default function Settings() {
     if (!enabled) {
       const registration = await waitForServiceWorkerReady(8000);
       if (!registration) {
-        showStatusMessage("Service worker not available yet. Please try again in a moment.", "error");
+        const env = summarizePushEnvironment();
+        showStatusMessage(
+          "Service worker not available yet. Please try again in a moment.",
+          "error",
+          `PWA=${env.isPwa} secure=${env.isSecureContext} serviceWorker=${env.hasServiceWorker} pushManager=${env.hasPushManager} controller=${env.hasController} permission=${env.pushPermission}`
+        );
         return;
       }
       const existing = await registration.pushManager.getSubscription();
@@ -691,10 +853,14 @@ export default function Settings() {
       return;
     }
 
-    const { success, subscription, pushSubscriptionPayload } = await subscribeToPush();
+    const { success, subscription, pushSubscriptionPayload, errorReason } = await subscribeToPush();
     if (!success || !subscription) {
       setPushNotificationsEnabled(false);
-      showStatusMessage("Enable browser notifications to receive push reminders", "error");
+      showStatusMessage(
+        errorReason || "Enable browser notifications to receive push reminders",
+        "error",
+        errorReason ? `Details: ${errorReason}` : ""
+      );
       return;
     }
 
