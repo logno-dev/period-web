@@ -68,42 +68,63 @@ export default function Settings() {
     setMessage("");
     
     try {
-      const serializePushSubscription = (subscription: PushSubscription | null) => {
-        if (!subscription) return null;
+      const normalizeBase64 = (value: ArrayBuffer | null): string | null => {
+      if (!value) return null;
+      const bytes = new Uint8Array(value);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    };
 
-        if (typeof subscription.toJSON === "function") {
-          const value = subscription.toJSON();
-          if (value) {
-            return value;
-          }
+      const normalizePushSubscriptionPayload = (subscription: PushSubscription | null) => {
+      if (!subscription) return null;
+
+      if (typeof subscription.toJSON === "function") {
+        const value = subscription.toJSON();
+        const keys = value?.keys as Record<string, unknown> | undefined;
+        const p256dh =
+          typeof keys?.p256dh === 'string' ? keys.p256dh : null;
+        const auth =
+          typeof keys?.auth === 'string' ? keys.auth : null;
+
+        if (
+          value?.endpoint &&
+          typeof p256dh === 'string' &&
+          p256dh.length > 0 &&
+          typeof auth === 'string' &&
+          auth.length > 0
+        ) {
+          return {
+            endpoint: value.endpoint,
+            expirationTime: value.expirationTime ?? null,
+            keys: {
+              p256dh,
+              auth,
+            },
+          };
         }
+      }
 
-        const toBase64 = (value: ArrayBuffer | null): string | null => {
-          if (!value) return null;
-          let binary = "";
-          const bytes = new Uint8Array(value);
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          return btoa(binary);
-        };
+      const p256dh =
+        normalizeBase64(subscription.getKey("p256dh"));
+      const auth =
+        normalizeBase64(subscription.getKey("auth"));
 
-        const p256dh = toBase64(subscription.getKey("p256dh"));
-        const auth = toBase64(subscription.getKey("auth"));
+      if (!subscription.endpoint || !p256dh || !auth) {
+        return null;
+      }
 
-        if (!subscription.endpoint || !p256dh || !auth) {
-          return null;
-        }
-
-        return {
-          endpoint: subscription.endpoint,
-          expirationTime: subscription.expirationTime,
-          keys: { p256dh, auth }
-        };
+      return {
+        endpoint: subscription.endpoint,
+        expirationTime: subscription.expirationTime,
+        keys: { p256dh, auth }
       };
+    };
 
       const hasPushOptions = options !== undefined;
-      const serializedPushSub = serializePushSubscription(options?.pushSub ?? null);
+      const serializedPushSub = normalizePushSubscriptionPayload(options?.pushSub ?? null);
 
       if (options?.pushEnabled === true && options?.pushSub && !serializedPushSub) {
         setMessage("Unable to serialize push subscription");

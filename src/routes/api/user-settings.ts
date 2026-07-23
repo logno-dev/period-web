@@ -13,6 +13,15 @@ type PushSubscriptionBody = {
   };
 };
 
+type NormalizedPushSubscription = {
+  endpoint: string;
+  expirationTime: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+};
+
 function parseNotificationEmails(rawEmails: unknown): string[] {
   if (!rawEmails || typeof rawEmails !== 'string') {
     return [];
@@ -26,25 +35,93 @@ function parseNotificationEmails(rawEmails: unknown): string[] {
   }
 }
 
-function isValidPushSubscription(payload: unknown): payload is PushSubscriptionBody {
-  if (!payload || typeof payload !== 'object') return false;
+function toBase64(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value || null;
+  }
 
-  const candidate = payload as {
-    endpoint?: unknown;
-    keys?: {
-      p256dh?: unknown;
-      auth?: unknown;
-    };
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(value);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    const view = new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+    let binary = "";
+    for (let i = 0; i < view.length; i++) {
+      binary += String.fromCharCode(view[i]);
+    }
+    return btoa(binary);
+  }
+
+  return null;
+}
+
+function normalizePushSubscription(payload: unknown): NormalizedPushSubscription | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const candidate = payload as PushSubscriptionBody;
+
+  if (typeof candidate.endpoint !== 'string' || candidate.endpoint.length < 1) {
+    return null;
+  }
+
+  let p256dh =
+    candidate.keys &&
+    typeof candidate.keys === 'object' &&
+    typeof (candidate.keys as { p256dh?: unknown }).p256dh !== 'undefined'
+      ? toBase64((candidate.keys as { p256dh?: unknown }).p256dh)
+      : null;
+
+  if (!p256dh && typeof (candidate as Record<string, unknown>).p256dh !== 'undefined') {
+    p256dh = toBase64((candidate as Record<string, unknown>).p256dh);
+  }
+
+  let auth =
+    candidate.keys &&
+    typeof candidate.keys === 'object' &&
+    typeof (candidate.keys as { auth?: unknown }).auth !== 'undefined'
+      ? toBase64((candidate.keys as { auth?: unknown }).auth)
+      : null;
+
+  if (!auth && typeof (candidate as Record<string, unknown>).auth !== 'undefined') {
+    auth = toBase64((candidate as Record<string, unknown>).auth);
+  }
+
+  if (!p256dh || !auth) {
+    return null;
+  }
+
+  let expirationTime: number | null = null;
+  if (candidate.expirationTime === null) {
+    expirationTime = null;
+  } else if (typeof candidate.expirationTime === 'number') {
+    expirationTime = candidate.expirationTime;
+  } else if (typeof candidate.expirationTime === 'string' && candidate.expirationTime.length > 0) {
+    const parsed = Number(candidate.expirationTime);
+    if (Number.isFinite(parsed)) {
+      expirationTime = parsed;
+    }
+  }
+
+  return {
+    endpoint: candidate.endpoint,
+    expirationTime,
+    keys: {
+      p256dh,
+      auth,
+    },
   };
-
-  if (typeof candidate.endpoint !== 'string' || candidate.endpoint.length < 1) return false;
-
-  const keys = candidate.keys;
-  if (!keys || typeof keys !== 'object') return false;
-  if (typeof keys.p256dh !== 'string' || keys.p256dh.length === 0) return false;
-  if (typeof keys.auth !== 'string' || keys.auth.length === 0) return false;
-
-  return true;
 }
 
 function isMissingPushColumnsError(error: unknown): boolean {
@@ -65,7 +142,8 @@ export async function GET() {
     const resolvedUserId = sessionUser.id;
 
     try {
-      const user = await db.select()
+      const user = await db
+        .select()
         .from(users)
         .where(eq(users.id, resolvedUserId))
         .limit(1);
@@ -88,11 +166,12 @@ export async function GET() {
         throw error;
       }
 
-      const fallback = await db.select({
-        notificationsEnabled: users.notificationsEnabled,
-        notificationEmails: users.notificationEmails,
-        timezone: users.timezone
-      })
+      const fallback = await db
+        .select({
+          notificationsEnabled: users.notificationsEnabled,
+          notificationEmails: users.notificationEmails,
+          timezone: users.timezone
+        })
         .from(users)
         .where(eq(users.id, resolvedUserId))
         .limit(1);
@@ -147,11 +226,6 @@ export async function POST(event: { request: Request }) {
       }
     }
 
-    // Validate push subscription when provided
-    if (pushSubscription !== undefined && pushSubscription !== null && !isValidPushSubscription(pushSubscription)) {
-      return new Response("Invalid push subscription format", { status: 400 });
-    }
-
     // Validate timezone (basic check - should be a string)
     if (timezone && typeof timezone !== 'string') {
       return new Response("Invalid timezone format", { status: 400 });
@@ -163,11 +237,12 @@ export async function POST(event: { request: Request }) {
       pushNotificationsEnabled !== undefined || pushSubscription !== undefined;
 
     if (!hasPushPayload) {
-      const user = await db.select({
-        notificationsEnabled: users.notificationsEnabled,
-        notificationEmails: users.notificationEmails,
-        timezone: users.timezone
-      })
+      const user = await db
+        .select({
+          notificationsEnabled: users.notificationsEnabled,
+          notificationEmails: users.notificationEmails,
+          timezone: users.timezone
+        })
         .from(users)
         .where(eq(users.id, resolvedUserId))
         .limit(1);
@@ -178,9 +253,10 @@ export async function POST(event: { request: Request }) {
 
       const userSettings = user[0];
 
-      const nextNotificationEmails = Array.isArray(notificationEmails)
-        ? JSON.stringify(notificationEmails)
-        : userSettings.notificationEmails;
+      const nextNotificationEmails =
+        Array.isArray(notificationEmails)
+          ? JSON.stringify(notificationEmails)
+          : userSettings.notificationEmails;
 
       const nextTimezone =
         typeof timezone === 'string' && timezone.trim().length > 0
@@ -204,7 +280,8 @@ export async function POST(event: { request: Request }) {
       return json({ success: true });
     }
 
-    const user = await db.select()
+    const user = await db
+      .select()
       .from(users)
       .where(eq(users.id, resolvedUserId))
       .limit(1);
@@ -229,15 +306,14 @@ export async function POST(event: { request: Request }) {
         : userSettings.notificationsEnabled;
 
     const pushEnabled = Boolean(pushNotificationsEnabled);
-
-    if (pushEnabled && !isValidPushSubscription(pushSubscription)) {
-      return new Response("Invalid push subscription format", { status: 400 });
-    }
-
     const normalizedPushSubscription =
       pushEnabled
-        ? JSON.stringify(pushSubscription)
+        ? normalizePushSubscription(pushSubscription)
         : null;
+
+    if (pushEnabled && !normalizedPushSubscription) {
+      return new Response("Invalid push subscription format", { status: 400 });
+    }
 
     const updateValues = {
       notificationsEnabled: nextNotificationsEnabled,
@@ -245,7 +321,9 @@ export async function POST(event: { request: Request }) {
       timezone: nextTimezone,
       updatedAt: new Date(),
       pushNotificationsEnabled: pushEnabled,
-      pushSubscription: normalizedPushSubscription
+      pushSubscription: pushEnabled
+        ? JSON.stringify(normalizedPushSubscription)
+        : null
     };
 
     try {
