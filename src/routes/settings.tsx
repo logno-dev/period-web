@@ -898,10 +898,20 @@ export default function Settings() {
 
       const keyResponse = await fetch('/api/push/vapid-public-key');
       if (!keyResponse.ok) {
+        let errorDetails = `status=${keyResponse.status}`;
+        try {
+          const parsed = await keyResponse.json();
+          if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string') {
+            errorDetails += `, ${parsed.error}`;
+          }
+        } catch {
+          // no-op
+        }
+
         return {
           success: false,
           subscription: null,
-          errorReason: `Failed to load VAPID key (${keyResponse.status}).`
+          errorReason: `Failed to load VAPID key (${errorDetails}).`
         };
       }
 
