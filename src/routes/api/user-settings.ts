@@ -137,6 +137,42 @@ function normalizePushSubscription(payload: unknown): NormalizedPushSubscription
   };
 }
 
+function summarizePayloadForDebug(payload: unknown): Record<string, unknown> {
+  if (payload === undefined) {
+    return { type: 'undefined' };
+  }
+
+  if (payload === null) {
+    return { type: 'null' };
+  }
+
+  if (typeof payload === 'string') {
+    return {
+      type: 'string',
+      length: payload.length,
+      looksLikeJson: payload.trim().startsWith('{') || payload.trim().startsWith('[')
+    };
+  }
+
+  if (typeof payload === 'object') {
+    const candidate = payload as PushSubscriptionBody;
+    const keys = candidate.keys as Record<string, unknown> | undefined;
+
+    return {
+      type: 'object',
+      hasEndpoint: typeof candidate.endpoint === 'string' && candidate.endpoint.length > 0,
+      hasKeysObject: Boolean(keys),
+      hasKeysP256dh: keys ? typeof keys.p256dh === 'string' : false,
+      hasKeysAuth: keys ? typeof keys.auth === 'string' : false,
+      hasP256dh: typeof (candidate as Record<string, unknown>).p256dh !== 'undefined',
+      hasAuth: typeof (candidate as Record<string, unknown>).auth !== 'undefined',
+      expirationType: typeof candidate.expirationTime
+    };
+  }
+
+  return { type: typeof payload };
+}
+
 function isMissingPushColumnsError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : "";
   return (
@@ -329,12 +365,19 @@ export async function POST(event: { request: Request }) {
     }
 
     if (pushEnabled && !normalizedPushSubscription) {
-      console.warn("Invalid push subscription format provided while enabling notifications", {
+      const details = {
         userId: resolvedUserId,
         hasPushPayload,
-        hasPushSubscription: pushSubscription !== undefined,
-      });
-      return new Response("Invalid push subscription format", { status: 400 });
+        pushNotificationsEnabled,
+        pushSubscription: summarizePayloadForDebug(pushSubscription)
+      };
+
+      console.warn("Invalid push subscription format provided while enabling notifications", details);
+
+      return json({
+        error: "Invalid push subscription format",
+        details
+      }, { status: 400 });
     }
 
     const updateValues = {

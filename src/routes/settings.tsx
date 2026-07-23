@@ -58,6 +58,139 @@ export default function Settings() {
     return outputArray;
   };
 
+  const summarizePushSubscription = (subscription: PushSubscription | null) => {
+    if (!subscription) {
+      return {
+        exists: false
+      };
+    }
+
+    let p256dhLength = 0;
+    let authLength = 0;
+
+    try {
+      const p256dh = subscription.getKey("p256dh");
+      const auth = subscription.getKey("auth");
+      p256dhLength = p256dh ? p256dh.byteLength : 0;
+      authLength = auth ? auth.byteLength : 0;
+    } catch (error) {
+      return {
+        exists: true,
+        endpoint: !!subscription.endpoint,
+        endpointLength: subscription.endpoint ? subscription.endpoint.length : 0,
+        getKeyError: true
+      };
+    }
+
+    return {
+      exists: true,
+      endpointLength: subscription.endpoint ? subscription.endpoint.length : 0,
+      expirationTime: subscription.expirationTime ?? null,
+      p256dhLength,
+      authLength,
+      hasKeys: p256dhLength > 0 && authLength > 0
+    };
+  };
+
+  const collectPushErrorContext = async (options: {
+    pushEnabled?: boolean;
+    pushSub?: PushSubscription | null;
+    pushSubSerialized: unknown;
+  }) => {
+    const context: Record<string, unknown> = {
+      isPwa: isPwa(),
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+      pushEnabledRequested: options.pushEnabled,
+      hasWindow: typeof window !== 'undefined',
+      hasServiceWorker: typeof window !== 'undefined' && 'serviceWorker' in navigator,
+      hasPushManager: typeof window !== 'undefined' && 'PushManager' in window,
+      notificationApiSupported: typeof Notification !== 'undefined',
+    };
+
+    if (typeof Notification !== 'undefined') {
+      context.notificationPermission = Notification.permission;
+    }
+
+    const submittedPushSummary = summarizePushSubscription(options.pushSub ?? null);
+    context.submittedPush = submittedPushSummary;
+    context.submittedPushSerialized = {
+      type: options.pushSubSerialized === undefined ? 'undefined' : options.pushSubSerialized === null ? 'null' : typeof options.pushSubSerialized,
+      hasEndpoint: typeof (options.pushSubSerialized as { endpoint?: unknown })?.endpoint === 'string',
+      hasKeys: (options.pushSubSerialized && typeof options.pushSubSerialized === 'object' &&
+        typeof (options.pushSubSerialized as { keys?: unknown }).keys === 'object'),
+      hasP256dh: typeof (options.pushSubSerialized as { keys?: { p256dh?: unknown } })?.keys?.p256dh === 'string',
+      hasAuth: typeof (options.pushSubSerialized as { keys?: { auth?: unknown } })?.keys?.auth === 'string'
+    };
+
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return context;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      context.pushManagerReady = !!registration;
+      context.hasServiceWorkerController = !!navigator.serviceWorker.controller;
+
+      const existing = await registration.pushManager.getSubscription();
+      context.hasExistingSubscription = Boolean(existing);
+
+      context.existingSubscription = existing ? {
+        endpointLength: existing.endpoint ? existing.endpoint.length : 0,
+        expirationTime: existing.expirationTime ?? null
+      } : null;
+
+      try {
+        const existingKey = existing?.getKey("p256dh");
+        const existingAuth = existing?.getKey("auth");
+        const baseSubscription =
+          context.existingSubscription && typeof context.existingSubscription === 'object'
+            ? context.existingSubscription
+            : {};
+
+        context.existingSubscription = {
+          ...baseSubscription,
+          p256dhLength: existingKey ? existingKey.byteLength : 0,
+          authLength: existingAuth ? existingAuth.byteLength : 0,
+        };
+      } catch {
+        const baseSubscription =
+          context.existingSubscription && typeof context.existingSubscription === 'object'
+            ? context.existingSubscription
+            : {};
+
+        context.existingSubscription = {
+          ...baseSubscription,
+          hasGetKeyError: true
+        };
+      }
+    } catch (error) {
+      context.serviceWorkerReadyError = String(error);
+    }
+
+    return context;
+  };
+
+  const parseErrorPayload = async (response: Response) => {
+    try {
+      const responseText = await response.text();
+      try {
+        const parsed = JSON.parse(responseText);
+        if (parsed && typeof parsed === 'object') {
+          const message =
+            typeof parsed.error === 'string' ? parsed.error :
+            typeof parsed.message === 'string' ? parsed.message :
+            responseText;
+          return { message, details: parsed };
+        }
+      } catch {
+        return { message: responseText || `Request failed (${response.status})`, details: null };
+      }
+      return { message: responseText || `Request failed (${response.status})`, details: null };
+    } catch {
+      return { message: `Request failed (${response.status})`, details: null };
+    }
+  };
+
   const saveSettings = async (options?: {
     pushEnabled?: boolean;
     pushSub?: PushSubscription | null;
@@ -163,9 +296,26 @@ export default function Settings() {
         setMessage("Settings saved successfully!");
         setTimeout(() => setMessage(""), 3000);
       } else {
-        const errorText = await response.text();
-        console.error('Save failed:', errorText);
-        setMessage(`Failed to save settings: ${errorText || "Request rejected"}`);
+        const parsedError = await parseErrorPayload(response);
+        console.error('Save failed:', parsedError);
+
+        let debugDetails = "";
+        if (hasPushOptions) {
+          const pushContext = await collectPushErrorContext({
+            pushEnabled: options?.pushEnabled,
+            pushSub: options?.pushSub ?? null,
+            pushSubSerialized: pushSubscription
+          });
+
+          debugDetails = ` | Context: ${JSON.stringify(pushContext)}`;
+        }
+
+        const details =
+          (parsedError.details && typeof parsedError.details === 'object' && 'details' in (parsedError.details as Record<string, unknown>))
+            ? ` Details: ${JSON.stringify((parsedError.details as { details?: unknown }).details)}`
+            : '';
+
+        setMessage(`Failed to save settings: ${parsedError.message}${details}${debugDetails}`);
       }
     } catch (error) {
       console.error('Save error:', error);
@@ -495,7 +645,10 @@ export default function Settings() {
               </button>
               
               <Show when={message()}>
-                <div class={`text-sm ${message().includes("success") ? "text-green-600" : "text-red-600"}`}>
+                <div
+                  class={`text-sm ${message().includes("success") ? "text-green-600" : "text-red-600"}`}
+                  style={{ "white-space": "pre-wrap" }}
+                >
                   {message()}
                 </div>
               </Show>
