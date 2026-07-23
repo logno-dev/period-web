@@ -47,6 +47,14 @@ function isValidPushSubscription(payload: unknown): payload is PushSubscriptionB
   return true;
 }
 
+function isMissingPushColumnsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return (
+    message.includes("no such column: push_notifications_enabled") ||
+    message.includes("no such column: push_subscription")
+  );
+}
+
 export async function GET() {
   const { data: session } = await getSession();
   if (!session?.id) {
@@ -54,24 +62,53 @@ export async function GET() {
   }
 
   try {
-    const user = await db.select()
-      .from(users)
-      .where(eq(users.id, session.id))
-      .limit(1);
+    try {
+      const user = await db.select()
+        .from(users)
+        .where(eq(users.id, session.id))
+        .limit(1);
 
-    if (user.length === 0) {
-      return new Response("User not found", { status: 404 });
+      if (user.length === 0) {
+        return new Response("User not found", { status: 404 });
+      }
+
+      const userData = user[0];
+      const notificationEmails = parseNotificationEmails(userData.notificationEmails);
+
+      return json({
+        notificationsEnabled: userData.notificationsEnabled,
+        pushNotificationsEnabled: userData.pushNotificationsEnabled,
+        notificationEmails,
+        timezone: userData.timezone || "America/Los_Angeles"
+      });
+    } catch (error) {
+      if (!isMissingPushColumnsError(error)) {
+        throw error;
+      }
+
+      const fallback = await db.select({
+        notificationsEnabled: users.notificationsEnabled,
+        notificationEmails: users.notificationEmails,
+        timezone: users.timezone
+      })
+        .from(users)
+        .where(eq(users.id, session.id))
+        .limit(1);
+
+      if (fallback.length === 0) {
+        return new Response("User not found", { status: 404 });
+      }
+
+      const fallbackUser = fallback[0];
+      const notificationEmails = parseNotificationEmails(fallbackUser.notificationEmails);
+
+      return json({
+        notificationsEnabled: fallbackUser.notificationsEnabled,
+        pushNotificationsEnabled: false,
+        notificationEmails,
+        timezone: fallbackUser.timezone || "America/Los_Angeles"
+      });
     }
-
-    const userData = user[0];
-    const notificationEmails = parseNotificationEmails(userData.notificationEmails);
-
-    return json({
-      notificationsEnabled: userData.notificationsEnabled,
-      pushNotificationsEnabled: userData.pushNotificationsEnabled,
-      notificationEmails,
-      timezone: userData.timezone || "America/Los_Angeles"
-    });
   } catch (error) {
     console.error("Error fetching user settings:", error);
     return new Response("Internal server error", { status: 500 });
@@ -118,6 +155,51 @@ export async function POST(event: { request: Request }) {
       return new Response("Invalid timezone format", { status: 400 });
     }
 
+    const hasPushPayload =
+      pushNotificationsEnabled !== undefined || pushSubscription !== undefined;
+
+    if (!hasPushPayload) {
+      const user = await db.select({
+        notificationsEnabled: users.notificationsEnabled,
+        notificationEmails: users.notificationEmails,
+        timezone: users.timezone
+      })
+        .from(users)
+        .where(eq(users.id, session.id))
+        .limit(1);
+
+      if (user.length === 0) {
+        return new Response("User not found", { status: 404 });
+      }
+
+      const userSettings = user[0];
+
+      const nextNotificationEmails = Array.isArray(notificationEmails)
+        ? JSON.stringify(notificationEmails)
+        : userSettings.notificationEmails;
+
+      const nextTimezone =
+        typeof timezone === 'string' && timezone.trim().length > 0
+          ? timezone
+          : userSettings.timezone || "America/Los_Angeles";
+
+      const nextNotificationsEnabled =
+        typeof notificationsEnabled === 'boolean'
+          ? notificationsEnabled
+          : userSettings.notificationsEnabled;
+
+      await db.update(users)
+        .set({
+          notificationsEnabled: nextNotificationsEnabled,
+          notificationEmails: nextNotificationEmails,
+          timezone: nextTimezone,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, session.id));
+
+      return json({ success: true });
+    }
+
     const user = await db.select()
       .from(users)
       .where(eq(users.id, session.id))
@@ -128,12 +210,6 @@ export async function POST(event: { request: Request }) {
     }
 
     const userSettings = user[0];
-
-    const pushEnabled =
-      pushNotificationsEnabled === undefined
-        ? userSettings.pushNotificationsEnabled
-        : Boolean(pushNotificationsEnabled);
-
     const nextNotificationEmails = Array.isArray(notificationEmails)
       ? JSON.stringify(notificationEmails)
       : userSettings.notificationEmails;
@@ -148,21 +224,39 @@ export async function POST(event: { request: Request }) {
         ? notificationsEnabled
         : userSettings.notificationsEnabled;
 
+    const pushEnabled = Boolean(pushNotificationsEnabled);
+
+    if (pushEnabled && !isValidPushSubscription(pushSubscription)) {
+      return new Response("Invalid push subscription format", { status: 400 });
+    }
+
     const normalizedPushSubscription =
-      pushEnabled && isValidPushSubscription(pushSubscription)
+      pushEnabled
         ? JSON.stringify(pushSubscription)
         : null;
 
-    await db.update(users)
-      .set({
-        notificationsEnabled: nextNotificationsEnabled,
-        pushNotificationsEnabled: pushEnabled,
-        pushSubscription: normalizedPushSubscription,
-        notificationEmails: nextNotificationEmails,
-        timezone: nextTimezone,
-        updatedAt: new Date()
-      })
-      .where(eq(users.id, session.id));
+    const updateValues = {
+      notificationsEnabled: nextNotificationsEnabled,
+      notificationEmails: nextNotificationEmails,
+      timezone: nextTimezone,
+      updatedAt: new Date(),
+      pushNotificationsEnabled: pushEnabled,
+      pushSubscription: normalizedPushSubscription
+    };
+
+    try {
+      await db.update(users)
+        .set(updateValues)
+        .where(eq(users.id, session.id));
+    } catch (error) {
+      if (isMissingPushColumnsError(error)) {
+        return new Response(
+          "Database schema not migrated. Add push_notifications_enabled and push_subscription to users table first.",
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
 
     return json({ success: true });
   } catch (error) {

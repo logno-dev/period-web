@@ -68,14 +68,66 @@ export default function Settings() {
     setMessage("");
     
     try {
-      const payload = {
+      const serializePushSubscription = (subscription: PushSubscription | null) => {
+        if (!subscription) return null;
+
+        if (typeof subscription.toJSON === "function") {
+          const value = subscription.toJSON();
+          if (value) {
+            return value;
+          }
+        }
+
+        const toBase64 = (value: ArrayBuffer | null): string | null => {
+          if (!value) return null;
+          let binary = "";
+          const bytes = new Uint8Array(value);
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          return btoa(binary);
+        };
+
+        const p256dh = toBase64(subscription.getKey("p256dh"));
+        const auth = toBase64(subscription.getKey("auth"));
+
+        if (!subscription.endpoint || !p256dh || !auth) {
+          return null;
+        }
+
+        return {
+          endpoint: subscription.endpoint,
+          expirationTime: subscription.expirationTime,
+          keys: { p256dh, auth }
+        };
+      };
+
+      const hasPushOptions = options !== undefined;
+      const serializedPushSub = serializePushSubscription(options?.pushSub ?? null);
+
+      if (options?.pushEnabled === true && options?.pushSub && !serializedPushSub) {
+        setMessage("Unable to serialize push subscription");
+        setSaving(false);
+        return;
+      }
+      const pushSubscription =
+        !hasPushOptions
+          ? undefined
+          : options?.pushEnabled === false
+            ? null
+            : serializedPushSub;
+
+      const payload: Record<string, unknown> = {
         userId: session()?.id,
         notificationsEnabled: notificationsEnabled(),
         notificationEmails: notificationEmails(),
-        timezone: timezone(),
-        pushNotificationsEnabled: options?.pushEnabled ?? pushNotificationsEnabled(),
-        pushSubscription: options?.pushSub
+        timezone: timezone()
       };
+
+      if (options !== undefined) {
+        payload.pushNotificationsEnabled = options?.pushEnabled ?? pushNotificationsEnabled();
+        payload.pushSubscription = pushSubscription;
+      }
       console.log('Saving settings:', payload);
       
       const response = await fetch("/api/user-settings", {
@@ -92,7 +144,7 @@ export default function Settings() {
       } else {
         const errorText = await response.text();
         console.error('Save failed:', errorText);
-        setMessage("Failed to save settings");
+        setMessage(`Failed to save settings: ${errorText || "Request rejected"}`);
       }
     } catch (error) {
       console.error('Save error:', error);
