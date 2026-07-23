@@ -15,6 +15,9 @@ export default function Settings() {
   const [newEmail, setNewEmail] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [message, setMessage] = createSignal("");
+  const [messageType, setMessageType] = createSignal<"info" | "success" | "error">("info");
+  const [messageDetails, setMessageDetails] = createSignal("");
+  const [copiedDetails, setCopiedDetails] = createSignal(false);
   const [timezoneLoaded, setTimezoneLoaded] = createSignal(false);
 
   const waitForServiceWorkerReady = async (timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> => {
@@ -261,6 +264,172 @@ export default function Settings() {
     }
   };
 
+  const clearStatusMessage = () => {
+    setMessage("");
+    setMessageType("info");
+    setMessageDetails("");
+  };
+
+  const showStatusMessage = (
+    text: string,
+    type: "info" | "success" | "error" = "info",
+    details = "",
+    autoClearMs?: number
+  ) => {
+    setMessage(text);
+    setMessageType(type);
+    setMessageDetails(details);
+
+    if (autoClearMs && autoClearMs > 0) {
+      const snapshotText = text;
+      const snapshotType = type;
+      setTimeout(() => {
+        if (message() === snapshotText && messageType() === snapshotType) {
+          clearStatusMessage();
+        }
+      }, autoClearMs);
+    }
+  };
+
+  const copyMessageDetails = async () => {
+    const details = messageDetails();
+    if (!details || typeof navigator === 'undefined' || !navigator.clipboard) return;
+
+    try {
+      await navigator.clipboard.writeText(details);
+      setCopiedDetails(true);
+      setTimeout(() => setCopiedDetails(false), 1200);
+    } catch {
+      // no-op
+    }
+  };
+
+  const normalizeBase64 = (value: unknown): string | null => {
+    if (typeof value === 'string') {
+      return value || null;
+    }
+
+    if (!value) {
+      return null;
+    }
+
+    if (value instanceof ArrayBuffer) {
+      const bytes = new Uint8Array(value);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+
+    if (ArrayBuffer.isView(value)) {
+      const view = new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      let binary = "";
+      for (let i = 0; i < view.length; i++) {
+        binary += String.fromCharCode(view[i]);
+      }
+      return btoa(binary);
+    }
+
+    if (Array.isArray(value)) {
+      const bytes = new Uint8Array(value.length);
+      for (let i = 0; i < value.length; i++) {
+        const byte = value[i];
+        if (typeof byte !== 'number' || !Number.isFinite(byte)) {
+          return null;
+        }
+
+        const normalized = Math.max(0, Math.min(255, Math.floor(byte)));
+        bytes[i] = normalized;
+      }
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+
+    return null;
+  };
+
+  const normalizePushSubscriptionPayload = (subscription: PushSubscription | null) => {
+    if (!subscription) return null;
+
+    const fromRaw = (rawValue: unknown) => {
+      if (rawValue === undefined || rawValue === null) return null;
+
+      if (typeof rawValue === 'string') {
+        return rawValue || null;
+      }
+
+      return normalizeBase64(rawValue);
+    };
+
+    let value: Record<string, unknown> = {};
+
+    try {
+      if (typeof subscription.toJSON === 'function') {
+        const jsonValue = subscription.toJSON();
+        if (jsonValue && typeof jsonValue === 'object') {
+          value = jsonValue as Record<string, unknown>;
+        }
+      }
+    } catch {
+      value = {};
+    }
+
+    const endpoint = typeof value.endpoint === 'string' && value.endpoint.length > 0
+      ? value.endpoint
+      : typeof subscription.endpoint === 'string'
+        ? subscription.endpoint
+        : null;
+
+    const keys = typeof value.keys === 'object' && value.keys !== null ? value.keys as Record<string, unknown> : undefined;
+
+    let p256dh =
+      keys ? fromRaw(keys.p256dh) : null;
+
+    if (!p256dh) {
+      const fallback = (value as Record<string, unknown>).p256dh;
+      p256dh = fromRaw(fallback);
+    }
+
+    if (!p256dh) {
+      p256dh = fromRaw(subscription.getKey('p256dh'));
+    }
+
+    let auth =
+      keys ? fromRaw(keys.auth) : null;
+
+    if (!auth) {
+      const fallback = (value as Record<string, unknown>).auth;
+      auth = fromRaw(fallback);
+    }
+
+    if (!auth) {
+      auth = fromRaw(subscription.getKey('auth'));
+    }
+
+    if (!endpoint || !p256dh || !auth) {
+      return null;
+    }
+
+    const expirationTime = typeof value.expirationTime === 'number'
+      ? value.expirationTime
+      : typeof value.expirationTime === 'string'
+        ? Number(value.expirationTime) || null
+        : null;
+
+    return {
+      endpoint,
+      expirationTime,
+      keys: {
+        p256dh,
+        auth
+      }
+    };
+  };
+
   const saveSettings = async (options?: {
     pushEnabled?: boolean;
     pushSub?: PushSubscription | null;
@@ -269,69 +438,14 @@ export default function Settings() {
     if (!session()?.id) return;
     
     setSaving(true);
-    setMessage("");
+    clearStatusMessage();
     
     try {
-      const normalizeBase64 = (value: ArrayBuffer | null): string | null => {
-      if (!value) return null;
-      const bytes = new Uint8Array(value);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary);
-    };
-
-      const normalizePushSubscriptionPayload = (subscription: PushSubscription | null) => {
-      if (!subscription) return null;
-
-      if (typeof subscription.toJSON === "function") {
-        const value = subscription.toJSON();
-        const keys = value?.keys as Record<string, unknown> | undefined;
-        const p256dh =
-          typeof keys?.p256dh === 'string' ? keys.p256dh : null;
-        const auth =
-          typeof keys?.auth === 'string' ? keys.auth : null;
-
-        if (
-          value?.endpoint &&
-          typeof p256dh === 'string' &&
-          p256dh.length > 0 &&
-          typeof auth === 'string' &&
-          auth.length > 0
-        ) {
-          return {
-            endpoint: value.endpoint,
-            expirationTime: value.expirationTime ?? null,
-            keys: {
-              p256dh,
-              auth,
-            },
-          };
-        }
-      }
-
-      const p256dh =
-        normalizeBase64(subscription.getKey("p256dh"));
-      const auth =
-        normalizeBase64(subscription.getKey("auth"));
-
-      if (!subscription.endpoint || !p256dh || !auth) {
-        return null;
-      }
-
-      return {
-        endpoint: subscription.endpoint,
-        expirationTime: subscription.expirationTime,
-        keys: { p256dh, auth }
-      };
-    };
-
       const hasPushOptions = options !== undefined;
       const serializedPushSub = normalizePushSubscriptionPayload(options?.pushSub ?? null);
 
       if (options?.pushEnabled === true && options?.pushSub && !serializedPushSub) {
-        setMessage("Unable to serialize push subscription");
+        showStatusMessage("Unable to serialize push subscription", "error");
         setSaving(false);
         return;
       }
@@ -379,8 +493,7 @@ export default function Settings() {
       if (response.ok) {
         const result = await response.json();
         console.log('Save response:', result);
-        setMessage("Settings saved successfully!");
-        setTimeout(() => setMessage(""), 3000);
+        showStatusMessage("Settings saved successfully!", "success", "", 3000);
       } else {
         const parsedError = await parseErrorPayload(response);
         console.error('Save failed:', parsedError);
@@ -398,19 +511,23 @@ export default function Settings() {
             debugDetails = " | Context: pushNotificationsEnabled=false (payload intentionally null)";
           }
 
-        const details =
-          (parsedError.details && typeof parsedError.details === 'object' && 'details' in (parsedError.details as Record<string, unknown>))
-            ? ` Details: ${JSON.stringify((parsedError.details as { details?: unknown }).details)}`
-            : '';
+            const details =
+              (parsedError.details && typeof parsedError.details === 'object' && 'details' in (parsedError.details as Record<string, unknown>))
+                ? ` Details: ${JSON.stringify((parsedError.details as { details?: unknown }).details)}`
+                : '';
 
-        setMessage(`Failed to save settings: ${parsedError.message}${details}${debugDetails} | Payload: ${payloadSummary}`);
+        showStatusMessage(
+          `Failed to save settings: ${parsedError.message}`,
+          "error",
+          `Message: ${parsedError.message}\nStatus: ${response.status}\nDebug: ${payloadSummary}${debugDetails}${details}`
+        );
       }
     } catch (error) {
       console.error('Save error:', error);
       if (error instanceof DOMException && error.name === "AbortError") {
-        setMessage("Error saving settings: request timed out while saving");
+        showStatusMessage("Error saving settings: request timed out while saving", "error");
       } else {
-        setMessage("Error saving settings");
+        showStatusMessage("Error saving settings", "error");
       }
     } finally {
       setSaving(false);
@@ -440,7 +557,12 @@ export default function Settings() {
       }
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
-        return { success: true, subscription: existing };
+        const existingPayload = normalizePushSubscriptionPayload(existing);
+        if (existingPayload) {
+          return { success: true, subscription: existing };
+        }
+
+        await existing.unsubscribe();
       }
 
       const keyResponse = await fetch('/api/push/vapid-public-key');
@@ -458,6 +580,12 @@ export default function Settings() {
         applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
       });
 
+      const normalized = normalizePushSubscriptionPayload(subscription);
+      if (!normalized) {
+        await subscription.unsubscribe();
+        return { success: false, subscription: null };
+      }
+
       return { success: true, subscription };
     } catch (error) {
       console.error('Failed to subscribe to push notifications:', error);
@@ -467,7 +595,7 @@ export default function Settings() {
 
   const togglePushNotifications = async (enabled: boolean) => {
     if (!isPwa()) {
-      setMessage("Push notifications can only be enabled in installed PWA mode");
+      showStatusMessage("Push notifications can only be enabled in installed PWA mode", "error");
       return;
     }
 
@@ -476,7 +604,7 @@ export default function Settings() {
     if (!enabled) {
       const registration = await waitForServiceWorkerReady(8000);
       if (!registration) {
-        setMessage("Service worker not available yet. Please try again in a moment.");
+        showStatusMessage("Service worker not available yet. Please try again in a moment.", "error");
         return;
       }
       const existing = await registration.pushManager.getSubscription();
@@ -490,7 +618,7 @@ export default function Settings() {
     const { success, subscription } = await subscribeToPush();
     if (!success || !subscription) {
       setPushNotificationsEnabled(false);
-      setMessage("Enable browser notifications to receive push reminders");
+      showStatusMessage("Enable browser notifications to receive push reminders", "error");
       return;
     }
 
@@ -749,10 +877,61 @@ export default function Settings() {
               
               <Show when={message()}>
                 <div
-                  class={`text-sm ${message().includes("success") ? "text-green-600" : "text-red-600"}`}
-                  style={{ "white-space": "pre-wrap" }}
+                  class="text-sm max-w-xl"
+                  style={{
+                    "background-color": "var(--bg-primary)",
+                    "border": "1px solid var(--border-color)",
+                    "border-left": `4px solid ${messageType() === 'success' ? 'var(--success-color)' : 'var(--error-color)'}`,
+                    "color": messageType() === 'success' ? 'var(--success-color)' : 'var(--error-color)' ,
+                    "padding": "0.6rem",
+                    "border-radius": "0.5rem",
+                    "white-space": "pre-wrap"
+                  }}
                 >
-                  {message()}
+                  <div class="flex items-start justify-between gap-2">
+                    <div style={{"color": messageType() === 'success' ? 'var(--success-color)' : 'var(--text-primary)'}}>
+                      {message()}
+                    </div>
+                    <button
+                      onClick={clearStatusMessage}
+                      class="text-xs"
+                      style={{"color": "var(--text-secondary)"}}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+
+                  <Show when={messageType() === 'error' && messageDetails()}>
+                    <div class="mt-2">
+                      <details class="text-xs">
+                        <summary style={{"color": "var(--text-secondary)", "cursor": "pointer"}}>
+                          Technical details (tap to expand)
+                        </summary>
+                        <pre
+                          class="text-xs mt-2 max-h-56 overflow-auto p-2"
+                          style={{
+                            "background-color": "var(--bg-secondary)",
+                            "white-space": "pre-wrap",
+                            "word-break": "break-word"
+                          }}
+                        >
+                          {messageDetails()}
+                        </pre>
+                      </details>
+                      <div class="flex items-center justify-end gap-2 mt-2">
+                        <button
+                          onClick={copyMessageDetails}
+                          class="text-xs"
+                          style={{"color": "var(--accent-color)"}}
+                        >
+                          Copy details
+                        </button>
+                        <Show when={copiedDetails()}>
+                          <span class="text-xs" style={{"color": "var(--success-color)"}}>Copied</span>
+                        </Show>
+                      </div>
+                    </div>
+                  </Show>
                 </div>
               </Show>
             </div>

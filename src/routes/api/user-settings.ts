@@ -62,6 +62,25 @@ function toBase64(value: unknown): string | null {
     return btoa(binary);
   }
 
+  if (Array.isArray(value)) {
+    const bytes = new Uint8Array(value.length);
+
+    for (let i = 0; i < value.length; i++) {
+      const byte = value[i];
+      if (typeof byte !== 'number' || !Number.isFinite(byte)) {
+        return null;
+      }
+
+      bytes[i] = Math.max(0, Math.min(255, Math.floor(byte)));
+    }
+
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
   return null;
 }
 
