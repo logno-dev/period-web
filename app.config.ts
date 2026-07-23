@@ -11,6 +11,9 @@ export default defineConfig({
       VitePWA({
         registerType: "autoUpdate",
         injectRegister: false,
+        strategies: "injectManifest",
+        srcDir: "src",
+        filename: "sw.ts",
         includeAssets: [
           "favicon.ico",
           "favicon.svg",
@@ -19,7 +22,7 @@ export default defineConfig({
           "favicon-48x48.png",
           "favicon-180x180.png",
           "favicon-192x192.png",
-          "favicon-512x512.png",
+          "favicon-512x512.png"
         ],
         manifest: {
           name: "Period Tracker",

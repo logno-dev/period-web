@@ -1,15 +1,57 @@
+import type { CyclePhase } from "../types/period";
+
 async function checkNotifications() {
   console.log('Running daily notification check...');
   
   try {
     const { db } = await import('../db');
     const { users, periods } = await import('../db/schema');
-    const { eq } = await import('drizzle-orm');
-    const { calculateNextPeriodPrediction, getCyclePhaseForDate, formatDate, calculateAverageCycleLength } = await import('../utils/periodUtils');
-    const { sendNotificationEmail } = await import('./notifications');
+    const { eq, or } = await import('drizzle-orm');
+    const {
+      calculateNextPeriodPrediction,
+      getCyclePhaseForDate,
+      formatDate,
+      calculateAverageCycleLength
+    } = await import('../utils/periodUtils');
+    const { sendNotificationEmail, sendNotificationPush, PushSubscriptionRecord } = await import('./notifications');
 
-    // Get all users with notifications enabled
-    const allUsers = await db.select().from(users).where(eq(users.notificationsEnabled, true));
+    const parseEmails = (rawEmails: unknown): string[] => {
+      if (!rawEmails || typeof rawEmails !== 'string') {
+        return [];
+      }
+
+      try {
+        const parsed = JSON.parse(rawEmails);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const sendPush = async (
+      subscription: PushSubscriptionRecord | null,
+        payload: {
+          email: string;
+          type: 'ovulation' | 'period' | 'phase_change';
+          daysUntil?: number;
+          phaseTransition?: {
+           from: CyclePhase | null;
+           to: CyclePhase;
+          };
+        }
+      ) => {
+      if (!subscription) return;
+
+      await sendNotificationPush(subscription, payload);
+    };
+
+    // Get users with either email or push notifications enabled
+    const allUsers = await db.select().from(users).where(
+      or(
+        eq(users.notificationsEnabled, true),
+        eq(users.pushNotificationsEnabled, true)
+      )
+    );
     
     for (const user of allUsers) {
       // Get user's periods
@@ -52,18 +94,23 @@ async function checkNotifications() {
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
       const tomorrowStr = formatDate(tomorrowDate);
 
-      // Get all email addresses for this user
-      const emailAddresses = [user.email];
-      if (user.notificationEmails) {
+      const shouldSendEmail = Boolean(user.notificationsEnabled);
+      const shouldSendPush = Boolean(user.pushNotificationsEnabled);
+
+      let pushSubscription: PushSubscriptionRecord | null = null;
+      if (shouldSendPush && user.pushSubscription) {
         try {
-          const additionalEmails = JSON.parse(user.notificationEmails);
-          if (Array.isArray(additionalEmails)) {
-            emailAddresses.push(...additionalEmails);
+          const parsed = JSON.parse(user.pushSubscription);
+          if (parsed?.endpoint && parsed?.keys?.p256dh && parsed?.keys?.auth) {
+            pushSubscription = parsed as PushSubscriptionRecord;
           }
         } catch (error) {
-          console.error('Error parsing notification emails for user', user.id, error);
+          console.error('Error parsing push subscription for user', user.id, error);
         }
       }
+
+      // Get all email addresses for this user
+      const emailAddresses = shouldSendEmail ? [user.email, ...parseEmails(user.notificationEmails)] : [];
 
       const averageCycleLength = calculateAverageCycleLength(userPeriods);
 
@@ -73,16 +120,20 @@ async function checkNotifications() {
 
       // If phase changed, send notification
       if (todayPhase && yesterdayPhase?.phase !== todayPhase.phase) {
+        const payload = {
+          email: user.email,
+          type: 'phase_change',
+          phaseTransition: {
+            from: yesterdayPhase?.phase || null,
+            to: todayPhase.phase
+          }
+        };
+
         for (const email of emailAddresses) {
-          await sendNotificationEmail({
-            email,
-            type: 'phase_change',
-            phaseTransition: {
-              from: yesterdayPhase?.phase || null,
-              to: todayPhase.phase
-            }
-          });
+          await sendNotificationEmail({ ...payload, email });
         }
+
+        await sendPush(shouldSendPush ? pushSubscription : null, payload);
       }
 
       // For legacy support: Check for ovulation notification (tomorrow)
@@ -90,25 +141,33 @@ async function checkNotifications() {
       
       // Only send if tomorrow is ovulation and today is NOT ovulation (i.e., entering ovulation tomorrow)
       if (tomorrowPhase?.phase === 'ovulation' && todayPhase?.phase !== 'ovulation') {
+        const payload = {
+          email: user.email,
+          type: 'ovulation' as const,
+          daysUntil: 1
+        };
+
         for (const email of emailAddresses) {
-          await sendNotificationEmail({
-            email,
-            type: 'ovulation',
-            daysUntil: 1
-          });
+          await sendNotificationEmail({ ...payload, email });
         }
+
+        await sendPush(shouldSendPush ? pushSubscription : null, payload);
       }
 
       // Check for period prediction notification
       const prediction = calculateNextPeriodPrediction(userPeriods);
       if (prediction.predictedDate === tomorrowStr && prediction.confidence !== 'insufficient') {
+        const payload = {
+          email: user.email,
+          type: 'period' as const,
+          daysUntil: 1
+        };
+
         for (const email of emailAddresses) {
-          await sendNotificationEmail({
-            email,
-            type: 'period',
-            daysUntil: 1
-          });
+          await sendNotificationEmail({ ...payload, email });
         }
+
+        await sendPush(shouldSendPush ? pushSubscription : null, payload);
       }
     }
   } catch (error) {

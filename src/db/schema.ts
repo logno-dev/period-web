@@ -5,7 +5,9 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   password: text("password"), // Optional for OAuth users
   notificationsEnabled: integer("notifications_enabled", { mode: "boolean" }).notNull().default(true),
+  pushNotificationsEnabled: integer("push_notifications_enabled", { mode: "boolean" }).notNull().default(false),
   notificationEmails: text("notification_emails"), // JSON array of additional email addresses
+  pushSubscription: text("push_subscription"), // JSON-encoded PushSubscription object
   timezone: text("timezone").notNull().default("America/Los_Angeles"), // IANA timezone identifier
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(new Date()),
