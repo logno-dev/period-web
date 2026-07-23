@@ -2,10 +2,14 @@ import { redirect } from "@solidjs/router";
 import { useSession } from "vinxi/http";
 import { getRandomValues, subtle, timingSafeEqual } from "crypto";
 import { createUser, findUser } from "./db";
+import { db } from "../db";
+import { users } from "../db/schema";
+import { eq, sql } from "drizzle-orm";
 
 export interface Session {
-  id: number;
-  email: string;
+  id?: number | string;
+  email?: string;
+  userId?: number | string;
 }
 
 export const getSession = () =>
@@ -19,6 +23,98 @@ export async function createSession(user: Session, redirectTo?: string) {
   const session = await getSession();
   await session.update(user);
   return redirect(validDest ? redirectTo : "/");
+}
+
+type ResolvedSessionUser = {
+  id: number;
+  email: string;
+};
+
+function normalizeId(candidate: unknown): number | null {
+  const parsed = Number(candidate);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+  return parsed;
+}
+
+async function findUserById(id: number): Promise<ResolvedSessionUser | null> {
+  const found = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  return found.length > 0
+    ? { id: found[0].id, email: found[0].email }
+    : null;
+}
+
+async function findUserByEmail(email: string): Promise<ResolvedSessionUser | null> {
+  const normalized = email.trim().toLowerCase();
+
+  const exactMatch = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(eq(users.email, normalized))
+    .limit(1);
+
+  if (exactMatch.length > 0) {
+    return { id: exactMatch[0].id, email: exactMatch[0].email };
+  }
+
+  const caseInsensitiveMatch = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${normalized}`)
+    .limit(1);
+
+  if (caseInsensitiveMatch.length > 0) {
+    return { id: caseInsensitiveMatch[0].id, email: caseInsensitiveMatch[0].email };
+  }
+
+  return null;
+}
+
+export async function getSessionUser(): Promise<ResolvedSessionUser | null> {
+  const session = await getSession();
+  const data = session.data;
+
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const payload = data as Record<string, unknown>;
+  const candidates = new Set<number>();
+
+  const primaryId = normalizeId(payload.id);
+  const alternateId = normalizeId(payload.userId);
+  const alternateUserId = normalizeId((payload as { user_id?: unknown }).user_id);
+
+  if (primaryId != null) candidates.add(primaryId);
+  if (alternateId != null) candidates.add(alternateId);
+  if (alternateUserId != null) candidates.add(alternateUserId);
+
+  for (const candidateId of candidates) {
+    const byId = await findUserById(candidateId);
+    if (byId) {
+      if (payload.email && (payload.email as string) !== byId.email) {
+        await session.update({ id: byId.id, email: byId.email });
+      }
+      return byId;
+    }
+  }
+
+  const email = typeof payload.email === "string" ? payload.email.trim() : "";
+  if (!email) {
+    return null;
+  }
+
+  const byEmail = await findUserByEmail(email);
+  if (byEmail) {
+    await session.update({ id: byEmail.id, email: byEmail.email });
+    return byEmail;
+  }
+
+  return null;
 }
 
 async function createHash(password: string) {

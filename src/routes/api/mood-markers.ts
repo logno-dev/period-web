@@ -1,13 +1,12 @@
 import { json } from "@solidjs/router";
 import type { APIEvent } from "@solidjs/start/server";
-import { getSession } from "../../auth/server";
+import { getSessionUser } from "../../auth/server";
 import { getUserMoodMarkers, createMoodMarker, deleteMoodMarker } from "../../db/moodMarkers";
 
 export async function GET() {
   "use server";
   try {
-    const session = await getSession();
-    const user = session.data;
+    const user = await getSessionUser();
 
     if (!user?.id) {
       return json({ error: "Unauthorized" }, { status: 401 });
@@ -24,8 +23,7 @@ export async function GET() {
 export async function POST({ request }: APIEvent) {
   "use server";
   try {
-    const session = await getSession();
-    const user = session.data;
+    const user = await getSessionUser();
 
     if (!user?.id) {
       return json({ error: "Unauthorized" }, { status: 401 });
@@ -49,8 +47,7 @@ export async function POST({ request }: APIEvent) {
 export async function DELETE({ request }: APIEvent) {
   "use server";
   try {
-    const session = await getSession();
-    const user = session.data;
+    const user = await getSessionUser();
 
     if (!user?.id) {
       return json({ error: "Unauthorized" }, { status: 401 });

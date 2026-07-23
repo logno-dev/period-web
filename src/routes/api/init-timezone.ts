@@ -1,12 +1,12 @@
 import { json } from "@solidjs/router";
-import { getSession } from "../../auth/server";
+import { getSessionUser } from "../../auth/server";
 import { db } from "../../db";
 import { users } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
 export async function POST(event: { request: Request }) {
-  const { data: session } = await getSession();
-  if (!session?.id) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -21,7 +21,7 @@ export async function POST(event: { request: Request }) {
     // Get current user settings
     const user = await db.select()
       .from(users)
-      .where(eq(users.id, session.id))
+      .where(eq(users.id, sessionUser.id))
       .limit(1);
 
     if (user.length === 0) {
@@ -36,7 +36,7 @@ export async function POST(event: { request: Request }) {
           timezone: timezone,
           updatedAt: new Date()
         })
-        .where(eq(users.id, session.id));
+        .where(eq(users.id, sessionUser.id));
       
       return json({ success: true, updated: true });
     }

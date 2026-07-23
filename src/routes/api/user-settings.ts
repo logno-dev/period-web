@@ -1,5 +1,5 @@
 import { json } from "@solidjs/router";
-import { getSession } from "../../auth/server";
+import { getSessionUser } from "../../auth/server";
 import { db } from "../../db";
 import { users } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -12,37 +12,6 @@ type PushSubscriptionBody = {
     auth?: unknown;
   };
 };
-
-type SessionData = {
-  id: number;
-  email: string;
-};
-
-async function resolveSessionUserId(session: SessionData): Promise<number | null> {
-  const numericId = Number(session.id);
-
-  if (Number.isFinite(numericId)) {
-    const exactMatch = await db.select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, numericId))
-      .limit(1);
-
-    if (exactMatch.length > 0) {
-      return exactMatch[0].id;
-    }
-  }
-
-  if (!session.email) {
-    return null;
-  }
-
-  const byEmail = await db.select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, session.email))
-    .limit(1);
-
-  return byEmail.length > 0 ? byEmail[0].id : null;
-}
 
 function parseNotificationEmails(rawEmails: unknown): string[] {
   if (!rawEmails || typeof rawEmails !== 'string') {
@@ -87,16 +56,13 @@ function isMissingPushColumnsError(error: unknown): boolean {
 }
 
 export async function GET() {
-  const { data: session } = await getSession();
-  if (!session?.id) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return new Response("Unauthorized", { status: 401 });
   }
 
   try {
-    const resolvedUserId = await resolveSessionUserId(session);
-    if (!resolvedUserId) {
-      return new Response("User not found", { status: 404 });
-    }
+    const resolvedUserId = sessionUser.id;
 
     try {
       const user = await db.select()
@@ -152,8 +118,8 @@ export async function GET() {
 }
 
 export async function POST(event: { request: Request }) {
-  const { data: session } = await getSession();
-  if (!session?.id) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -191,10 +157,7 @@ export async function POST(event: { request: Request }) {
       return new Response("Invalid timezone format", { status: 400 });
     }
 
-    const resolvedUserId = await resolveSessionUserId(session);
-    if (!resolvedUserId) {
-      return new Response("User not found", { status: 404 });
-    }
+    const resolvedUserId = sessionUser.id;
 
     const hasPushPayload =
       pushNotificationsEnabled !== undefined || pushSubscription !== undefined;

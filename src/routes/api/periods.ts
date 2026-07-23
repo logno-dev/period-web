@@ -1,15 +1,14 @@
 import { json } from "@solidjs/router";
 import type { APIEvent } from "@solidjs/start/server";
-import { getSession } from "../../auth/server";
+import { getSessionUser } from "../../auth/server";
 import { getUserPeriods, createPeriod, updatePeriod, deletePeriod } from "../../db/periods";
 
 export async function GET() {
   "use server";
   try {
     console.log("GET /api/periods - Starting");
-    const session = await getSession();
-    console.log("Session data:", session.data);
-    const user = session.data;
+    const user = await getSessionUser();
+    console.log("Session data:", user);
     
     if (!user?.id) {
       console.log("No user ID found, returning unauthorized");
@@ -30,8 +29,7 @@ export async function GET() {
 export async function POST({ request }: APIEvent) {
   "use server";
   try {
-    const session = await getSession();
-    const user = session.data;
+    const user = await getSessionUser();
     
     if (!user?.id) {
       return json({ error: "Unauthorized" }, { status: 401 });
@@ -55,8 +53,7 @@ export async function POST({ request }: APIEvent) {
 export async function PUT({ request }: APIEvent) {
   "use server";
   try {
-    const session = await getSession();
-    const user = session.data;
+    const user = await getSessionUser();
     
     if (!user?.id) {
       return json({ error: "Unauthorized" }, { status: 401 });
@@ -89,8 +86,7 @@ export async function PUT({ request }: APIEvent) {
 export async function DELETE({ request }: APIEvent) {
   "use server";
   try {
-    const session = await getSession();
-    const user = session.data;
+    const user = await getSessionUser();
     
     if (!user?.id) {
       return json({ error: "Unauthorized" }, { status: 401 });
