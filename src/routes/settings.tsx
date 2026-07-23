@@ -39,7 +39,7 @@ export default function Settings() {
     });
   }
 
-  const getExistingServiceWorkerRegistration = async (): Promise<ServiceWorkerRegistration | null> => {
+  const findExistingServiceWorkerRegistration = async (): Promise<ServiceWorkerRegistration | null> => {
     if (!('serviceWorker' in navigator)) {
       return null;
     }
@@ -49,14 +49,17 @@ export default function Settings() {
       return direct;
     }
 
-    if (typeof navigator.serviceWorker.getRegistrations !== 'undefined') {
-      const registrations = await waitWithTimeout(navigator.serviceWorker.getRegistrations(), 2000);
-      if (Array.isArray(registrations) && registrations.length > 0) {
-        return registrations[0];
-      }
+    if (typeof navigator.serviceWorker.getRegistrations === 'undefined') {
+      return null;
     }
 
-    return null;
+    const registrations = await waitWithTimeout(navigator.serviceWorker.getRegistrations(), 2000);
+    if (!Array.isArray(registrations) || registrations.length === 0) {
+      return null;
+    }
+
+    const rootScope = `${window.location.origin}/`;
+    return registrations.find((registration) => registration.scope === rootScope) ?? registrations[0];
   };
 
   const registerServiceWorker = async (): Promise<ServiceWorkerRegistration | null> => {
@@ -65,16 +68,51 @@ export default function Settings() {
     }
 
     try {
-      const existing = await getExistingServiceWorkerRegistration();
-      if (existing) {
-        return existing;
-      }
-
       const serviceWorkerUrl = `${window.location.origin}/sw.js`;
-      return await navigator.serviceWorker.register(serviceWorkerUrl, { scope: '/' });
+      return await waitWithTimeout(navigator.serviceWorker.register(serviceWorkerUrl, { scope: '/' }), 3000);
     } catch {
       return null;
     }
+  };
+
+  const waitForServiceWorkerActivation = async (
+    registration: ServiceWorkerRegistration,
+    timeoutMs = 3000
+  ): Promise<boolean> => {
+    if (registration.active) {
+      return true;
+    }
+
+    const worker = registration.installing || registration.waiting;
+    if (!worker) {
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve(false);
+      }, timeoutMs);
+
+      const onStateChange = () => {
+        if (worker.state === 'activated') {
+          cleanup();
+          resolve(true);
+        }
+
+        if (worker.state === 'redundant') {
+          cleanup();
+          resolve(false);
+        }
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        worker.removeEventListener('statechange', onStateChange);
+      };
+
+      worker.addEventListener('statechange', onStateChange);
+    });
   };
 
   const waitForServiceWorkerController = async (timeoutMs = 3000): Promise<boolean> => {
@@ -111,42 +149,22 @@ export default function Settings() {
       return null;
     }
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        clearTimeout(timeout);
-        resolve(null);
-      }, timeoutMs);
+    const existing = await findExistingServiceWorkerRegistration();
+    const registration = existing ?? await registerServiceWorker();
+    if (!registration) {
+      return null;
+    }
 
-      navigator.serviceWorker.ready
-        .then(async (registration) => {
-          clearTimeout(timeout);
-          if (!navigator.serviceWorker.controller) {
-            const hasController = await waitForServiceWorkerController(Math.min(timeoutMs, 3000));
-            if (!hasController) {
-              console.warn('Service worker registered but controller is not available yet.');
-            }
-          }
-          resolve(registration);
-        })
-        .catch(async () => {
-          clearTimeout(timeout);
+    await waitForServiceWorkerActivation(registration, Math.min(timeoutMs, 3000));
 
-          const fallback = await getExistingServiceWorkerRegistration();
-          if (fallback) {
-            if (!navigator.serviceWorker.controller) {
-              const hasController = await waitForServiceWorkerController(Math.min(timeoutMs, 3000));
-              if (!hasController) {
-                console.warn('Service worker fallback registration found, but controller is not available yet.');
-              }
-            }
-            resolve(fallback);
-            return;
-          }
+    if (!navigator.serviceWorker.controller) {
+      const hasController = await waitForServiceWorkerController(Math.min(timeoutMs, 2000));
+      if (!hasController) {
+        console.warn('Service worker is not controlling the current page yet.');
+      }
+    }
 
-          const registered = await registerServiceWorker();
-          resolve(registered);
-        });
-    });
+    return registration;
   };
 
   createEffect(() => {
@@ -663,6 +681,20 @@ export default function Settings() {
           return;
         }
 
+        if (!registration.active || !navigator.serviceWorker.controller) {
+          const env = summarizePushEnvironment();
+          showStatusMessage(
+            "Unable to save push settings",
+            "error",
+            `Service worker is not actively controlling this page yet. ` +
+            `Reopen the app and try again. PWA=${env.isPwa} secure=${env.isSecureContext} ` +
+            `serviceWorker=${env.hasServiceWorker} pushManager=${env.hasPushManager} ` +
+            `controller=${env.hasController}`
+          );
+          setSaving(false);
+          return;
+        }
+
         const existing = await registration.pushManager.getSubscription();
         if (existing) {
           pushSubscriptionPayload = normalizePushSubscriptionPayload(existing);
@@ -804,15 +836,20 @@ export default function Settings() {
         };
       }
 
+      if (!registration.active) {
+        return {
+          success: false,
+          subscription: null,
+          errorReason: 'Service worker registration is not active yet. Please reopen the app once and try again.'
+        };
+      }
+
       if (!navigator.serviceWorker.controller) {
-        const hadController = await waitForServiceWorkerController(3000);
-        if (!hadController) {
-          return {
-            success: false,
-            subscription: null,
-            errorReason: "Service worker registration is available, but this page is not yet controlled. Please reopen the app and try again."
-          };
-        }
+        return {
+          success: false,
+          subscription: null,
+          errorReason: 'Service worker is installed but does not control this page yet. Please reopen the app and try again.'
+        };
       }
 
       const existing = await registration.pushManager.getSubscription();
