@@ -15,6 +15,29 @@ export default function Settings() {
   const [saving, setSaving] = createSignal(false);
   const [message, setMessage] = createSignal("");
 
+  const waitForServiceWorkerReady = async (timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> => {
+    if (!('serviceWorker' in navigator)) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        clearTimeout(timeout);
+        resolve(null);
+      }, timeoutMs);
+
+      navigator.serviceWorker.ready
+        .then((registration) => {
+          clearTimeout(timeout);
+          resolve(registration);
+        })
+        .catch(() => {
+          clearTimeout(timeout);
+          resolve(null);
+        });
+    });
+  };
+
   createEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -97,6 +120,14 @@ export default function Settings() {
     pushSub?: PushSubscription | null;
     pushSubSerialized: unknown;
   }) => {
+    const waitWithTimeout = async (promise: Promise<unknown>, ms: number) => {
+      const timeout = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), ms);
+      });
+
+      return Promise.race([promise, timeout]);
+    };
+
     const context: Record<string, unknown> = {
       isPwa: isPwa(),
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
@@ -127,11 +158,23 @@ export default function Settings() {
     }
 
     try {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await waitWithTimeout(
+        navigator.serviceWorker.getRegistration(),
+        1500
+      ) as ServiceWorkerRegistration | null;
+
       context.pushManagerReady = !!registration;
       context.hasServiceWorkerController = !!navigator.serviceWorker.controller;
 
-      const existing = await registration.pushManager.getSubscription();
+      if (!registration) {
+        context.serviceWorkerReadyError = "Timed out waiting for service worker registration";
+        return context;
+      }
+
+      const existing = await waitWithTimeout(
+        registration.pushManager.getSubscription(),
+        1500
+      ) as PushSubscription | null;
       context.hasExistingSubscription = Boolean(existing);
 
       context.existingSubscription = existing ? {
@@ -284,11 +327,19 @@ export default function Settings() {
       }
       console.log('Saving settings:', payload);
       
+      const controller = new AbortController();
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, 12000);
+
       const response = await fetch("/api/user-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
+
+      clearTimeout(timeout);
 
       if (response.ok) {
         const result = await response.json();
@@ -319,7 +370,11 @@ export default function Settings() {
       }
     } catch (error) {
       console.error('Save error:', error);
-      setMessage("Error saving settings");
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setMessage("Error saving settings: request timed out while saving");
+      } else {
+        setMessage("Error saving settings");
+      }
     } finally {
       setSaving(false);
     }
@@ -342,7 +397,10 @@ export default function Settings() {
         return { success: false, subscription: null };
       }
 
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await waitForServiceWorkerReady(8000);
+      if (!registration) {
+        return { success: false, subscription: null };
+      }
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
         return { success: true, subscription: existing };
@@ -379,7 +437,11 @@ export default function Settings() {
     setPushNotificationsEnabled(enabled);
 
     if (!enabled) {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await waitForServiceWorkerReady(8000);
+      if (!registration) {
+        setMessage("Service worker not available yet. Please try again in a moment.");
+        return;
+      }
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
         await existing.unsubscribe();
