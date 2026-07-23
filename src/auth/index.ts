@@ -1,5 +1,6 @@
 import { action, query, redirect } from "@solidjs/router";
-import { getSession, passwordLogin } from "./server";
+import { getSessionUser, passwordLogin } from "./server";
+import { getSession } from "./server";
 
 // Define routes that require being logged in
 const PROTECTED_ROUTES = ["/"];
@@ -13,9 +14,13 @@ const isProtected = (path: string) =>
 
 export const querySession = query(async (path: string) => {
   "use server";
+  const sessionUser = await getSessionUser();
+  if (sessionUser) {
+    if (path === "/login") return redirect("/");
+    return sessionUser;
+  }
   const { data } = await getSession();
-  if (path === "/login" && data.id) return redirect("/");
-  if (data.id) return data;
+  if (path === "/login" && data?.id) return redirect("/");
   if (isProtected(path)) throw redirect(`/login?redirect=${path}`);
   return null;
 }, "session");

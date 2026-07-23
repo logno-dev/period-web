@@ -4,7 +4,8 @@ import { getRandomValues, subtle, timingSafeEqual } from "crypto";
 import { createUser, findUser } from "./db";
 import { db } from "../db";
 import { users } from "../db/schema";
-import { eq, sql } from "drizzle-orm";
+import { periods, moodMarkers } from "../db/schema";
+import { count, eq, sql } from "drizzle-orm";
 
 export interface Session {
   id?: number | string;
@@ -74,6 +75,32 @@ async function findUserByEmail(email: string): Promise<ResolvedSessionUser | nul
   return null;
 }
 
+async function countUserRows(table: typeof periods | typeof moodMarkers, userId: number) {
+  const result = await db.select({ count: count() }).from(table).where(eq(table.userId, userId));
+  return Number(result[0]?.count || 0);
+}
+
+async function migrateLegacyRows(legacyUserId: number, canonicalUserId: number) {
+  const legacyPeriods = await countUserRows(periods, legacyUserId);
+  const legacyMarkers = await countUserRows(moodMarkers, legacyUserId);
+
+  if (legacyPeriods === 0 && legacyMarkers === 0) return;
+
+  const canonicalPeriods = await countUserRows(periods, canonicalUserId);
+  const canonicalMarkers = await countUserRows(moodMarkers, canonicalUserId);
+
+  // Only migrate if canonical account is currently empty, to avoid moving data between two active accounts.
+  if (canonicalPeriods > 0 || canonicalMarkers > 0) return;
+
+  if (legacyPeriods > 0) {
+    await db.update(periods).set({ userId: canonicalUserId }).where(eq(periods.userId, legacyUserId));
+  }
+
+  if (legacyMarkers > 0) {
+    await db.update(moodMarkers).set({ userId: canonicalUserId }).where(eq(moodMarkers.userId, legacyUserId));
+  }
+}
+
 export async function getSessionUser(): Promise<ResolvedSessionUser | null> {
   const session = await getSession();
   const data = session.data;
@@ -93,25 +120,34 @@ export async function getSessionUser(): Promise<ResolvedSessionUser | null> {
   if (alternateId != null) candidates.add(alternateId);
   if (alternateUserId != null) candidates.add(alternateUserId);
 
+  const email = typeof payload.email === "string" ? payload.email.trim() : "";
+  const byEmail = email ? await findUserByEmail(email) : null;
+  if (byEmail) {
+    if ((payload.id || payload.userId || (payload as { user_id?: unknown }).user_id) && !candidates.has(byEmail.id)) {
+      await session.update({ id: byEmail.id, email: byEmail.email });
+      for (const legacyId of candidates) {
+        if (legacyId !== byEmail.id) {
+          await migrateLegacyRows(legacyId, byEmail.id);
+        }
+      }
+    } else if (payload.email !== byEmail.email) {
+      await session.update({ id: byEmail.id, email: byEmail.email });
+    }
+    return byEmail;
+  }
+
+  if (candidates.size === 0) {
+    return null;
+  }
+
   for (const candidateId of candidates) {
     const byId = await findUserById(candidateId);
     if (byId) {
-      if (payload.email && (payload.email as string) !== byId.email) {
+      if (byId.email !== payload.email) {
         await session.update({ id: byId.id, email: byId.email });
       }
       return byId;
     }
-  }
-
-  const email = typeof payload.email === "string" ? payload.email.trim() : "";
-  if (!email) {
-    return null;
-  }
-
-  const byEmail = await findUserByEmail(email);
-  if (byEmail) {
-    await session.update({ id: byEmail.id, email: byEmail.email });
-    return byEmail;
   }
 
   return null;
