@@ -442,17 +442,33 @@ export default function Settings() {
     
     try {
       const hasPushOptions = options !== undefined;
+      const pushEnabled = options?.pushEnabled ?? pushNotificationsEnabled();
       const serializedPushSub = normalizePushSubscriptionPayload(options?.pushSub ?? null);
 
-      if (options?.pushEnabled === true && options?.pushSub && !serializedPushSub) {
-        showStatusMessage("Unable to serialize push subscription", "error");
+      if (hasPushOptions && pushEnabled && !options?.pushSub) {
+        showStatusMessage(
+          "Unable to save push settings",
+          "error",
+          "No push subscription object was provided while enabling notifications."
+        );
         setSaving(false);
         return;
       }
+
+      if (hasPushOptions && pushEnabled && !serializedPushSub) {
+        showStatusMessage(
+          "Unable to serialize push subscription",
+          "error",
+          `Push subscription could not be normalized. Summary: ${JSON.stringify(summarizePushSubscription(options?.pushSub ?? null))}`
+        );
+        setSaving(false);
+        return;
+      }
+
       const pushSubscription =
         !hasPushOptions
           ? undefined
-          : options?.pushEnabled === false
+          : pushEnabled === false
             ? null
             : serializedPushSub;
 
@@ -470,7 +486,7 @@ export default function Settings() {
       }
 
       if (options !== undefined) {
-        payload.pushNotificationsEnabled = options?.pushEnabled ?? pushNotificationsEnabled();
+        payload.pushNotificationsEnabled = pushEnabled;
         payload.pushSubscription = pushSubscription;
       }
       const payloadSummary = summarizePayloadForDebug(payload);
@@ -499,9 +515,9 @@ export default function Settings() {
         console.error('Save failed:', parsedError);
 
           let debugDetails = "";
-          if (hasPushOptions && options?.pushEnabled === true) {
+           if (hasPushOptions && pushEnabled) {
             const pushContext = await collectPushErrorContext({
-              pushEnabled: options?.pushEnabled,
+              pushEnabled,
               pushSub: options?.pushSub ?? null,
               pushSubSerialized: pushSubscription
             });
