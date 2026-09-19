@@ -10,10 +10,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -132,19 +136,25 @@ internal fun TrackerCalendar(
 
 @Composable
 internal fun PhaseLegend() {
+    var selectedPhase by remember { mutableStateOf<Phase?>(null) }
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Cycle Phases", style = MaterialTheme.typography.titleSmall)
             Phase.entries.chunked(2).forEach { phases ->
                 Row(Modifier.fillMaxWidth()) {
                     phases.forEach { phase ->
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(6.dp))
+                            .clickable(role = Role.Button) { selectedPhase = phase }
+                            .semantics { contentDescription = "${phase.label} phase information" },
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(Modifier.size(14.dp).background(phase.color(), CircleShape))
                             Text(if (phase == Phase.OVULATION) "Ovulation" else phase.label, style = MaterialTheme.typography.bodySmall)
+                            Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
                         }
                     }
                 }
             }
         }
     }
+    selectedPhase?.let { PhaseInfoDialog(it, onDismiss = { selectedPhase = null }) }
 }

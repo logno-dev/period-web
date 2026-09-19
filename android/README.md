@@ -6,6 +6,9 @@ Kotlin / Jetpack Compose app for the existing Period Tracker account. Package: `
 
 - Native Sunday-first month calendar with connected phase pills, logged periods, predictions, and mood markers. Phase colors, pink calendar header, compact cards, and light/deep-purple dark palettes match the web app.
 - Add, edit, end, and delete periods; add/remove moods; history and cycle statistics.
+- Fertility index on the prediction card, using the web app's relative cycle-timing calculation, with a tappable explanation distinguishing it from pregnancy probability.
+- Full Stats tab: completed-period averages to one decimal place, individual durations and start-to-start cycle lengths, active periods, and mood patterns by cycle day/phase (including markers outside known cycle history).
+- Tappable phase legend, current phase, and selected-date phase details with descriptions, characteristics, and tips.
 - Native email/password sign-in and Android Keystore-protected access tokens.
 - Shared server data; private on-device cache for offline reading. Edits require internet.
 - Foreground synchronization and WorkManager background sync approximately every six hours.
@@ -80,8 +83,8 @@ For this repository's initial automated setup, the local keystore is retained at
 To publish after committing and pushing changes:
 
 ```sh
-git tag android-v0.1.4
-git push origin android-v0.1.4
+git tag android-v0.1.5
+git push origin android-v0.1.5
 ```
 
 Version codes are `major * 1,000,000 + minor * 1,000 + patch`; minor/patch must be 0–999. Use increasing versions and never replace published APKs with differently signed builds.
@@ -95,7 +98,7 @@ In Obtainium:
 
 ## Verification
 
-JVM tests cover prediction confidence, active-cycle references, DST/leap-day arithmetic, phase boundaries, notification dates, and invalid period ranges. Instrumentation tests check native sign-in fields and verify actual Android notification delivery, channel, privacy text, and tap intent. Backend integration tests verify native login, rejection of incorrect credentials, email normalization, password preservation, and account ownership. Server token tests cover tampering, expiry, purpose separation, and the legacy RFC 7636 PKCE vector:
+JVM tests cover prediction confidence, active-cycle references, DST/leap-day arithmetic, phase boundaries, fertility-index offsets, historical cycle lengths, completed-period statistics, mood grouping/ties/unknown dates, notification dates, and invalid period ranges. Instrumentation tests check native sign-in fields, fertility/phase dialogs, Stats values and edit/delete actions, and actual Android notification delivery, channel, privacy text, and tap intent. Backend integration tests verify native login, rejection of incorrect credentials, email normalization, password preservation, and account ownership. Server token tests cover tampering, expiry, purpose separation, and the legacy RFC 7636 PKCE vector:
 
 ```sh
 node --test tests/mobileTokens.test.ts

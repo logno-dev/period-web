@@ -15,6 +15,14 @@ enum class Phase(val label: String) {
 }
 data class Prediction(val date: LocalDate, val confidence: String)
 data class Reminder(val key: String, val date: LocalDate, val title: String, val text: String)
+data class PhaseInfo(val phase: Phase, val dayInCycle: Int, val isEstimated: Boolean)
+data class FertilityEstimate(val percentage: Int, val dayFromOvulation: Int?, val phase: Phase, val isEstimated: Boolean)
+data class PeriodStat(val period: Period, val length: Int, val cycleLength: Int?)
+data class PeriodSummary(val completed: List<PeriodStat>, val averagePeriod: Double?, val averageCycle: Double?)
+data class MoodPattern(
+    val mood: String, val total: Int, val mostCommonDay: Int?, val mostCommonDayCount: Int,
+    val mostCommonPhase: Phase?, val mostCommonPhaseCount: Int, val unknownCycleCount: Int,
+)
 
 object Cycle {
     fun length(period: Period) = period.end?.let { DAYS.between(period.start, it).toInt() + 1 }
@@ -62,10 +70,14 @@ object Cycle {
         return start until start + ovulation
     }
 
-    fun phase(date: LocalDate, periods: List<Period>): Phase? {
+    fun phase(date: LocalDate, periods: List<Period>): Phase? = phaseInfo(date, periods)?.phase
+
+    fun phaseInfo(date: LocalDate, periods: List<Period>): PhaseInfo? {
         val sorted = periods.sortedBy { it.start }
         val averagePeriod = periodLength(periods)
-        if (sorted.any { date >= it.start && date <= (it.end ?: it.start.plusDays(averagePeriod - 1L)) }) return Phase.MENSTRUAL
+        sorted.firstOrNull { date >= it.start && date <= (it.end ?: it.start.plusDays(averagePeriod - 1L)) }?.let {
+            return PhaseInfo(Phase.MENSTRUAL, DAYS.between(it.start, date).toInt() + 1, it.end == null)
+        }
         val index = sorted.indexOfLast { it.start <= date }
         if (index < 0) return null
         val reference = sorted[index]
@@ -73,12 +85,51 @@ object Cycle {
         val cycle = next?.let { DAYS.between(reference.start, it.start).toInt() } ?: cycleLength(periods).roundToInt()
         val day = DAYS.between(reference.start, date).toInt() + 1
         val window = boundaries(cycle, length(reference) ?: averagePeriod)
-        return when {
+        val phase = when {
             day < window.first -> Phase.FOLLICULAR
             day in window -> Phase.OVULATION
             else -> Phase.LUTEAL
         }
+        return PhaseInfo(phase, day, next == null && reference.end == null)
     }
+
+    // Matches the web's relative cycle-timing index. This is not a pregnancy probability.
+    fun fertility(date: LocalDate, periods: List<Period>): FertilityEstimate? {
+        val info = phaseInfo(date, periods) ?: return null
+        if (info.phase == Phase.MENSTRUAL) return FertilityEstimate(2, null, info.phase, info.isEstimated)
+        val sorted = periods.sortedBy { it.start }
+        val index = sorted.indexOfLast { it.start <= date }
+        val reference = sorted[index]
+        val next = sorted.getOrNull(index + 1)
+        val cycle = next?.let { DAYS.between(reference.start, it.start).toInt() } ?: cycleLength(periods).roundToInt()
+        val ovulationDay = boundaries(cycle, length(reference) ?: periodLength(periods)).last
+        val offset = info.dayInCycle - ovulationDay
+        val percentage = when (offset) {
+            -5 -> 25; -4 -> 35; -3 -> 50; -2 -> 70; -1 -> 90; 0 -> 100; 1 -> 12; 2 -> 5
+            else -> if (offset <= -6) 8 else 2
+        }
+        return FertilityEstimate(percentage, offset, info.phase, info.isEstimated)
+    }
+
+    fun statistics(periods: List<Period>): PeriodSummary {
+        val completed = periods.filter { it.end != null }.sortedBy { it.start }
+        val stats = completed.mapIndexed { index, period ->
+            PeriodStat(period, length(period)!!, completed.getOrNull(index - 1)?.let { DAYS.between(it.start, period.start).toInt() })
+        }
+        val lengths = stats.map { it.length }
+        val cycles = stats.mapNotNull { it.cycleLength }
+        return PeriodSummary(stats.reversed(), lengths.takeIf { it.isNotEmpty() }?.average(), cycles.takeIf { it.isNotEmpty() }?.average())
+    }
+
+    fun moodPatterns(periods: List<Period>, moods: List<Mood>): List<MoodPattern> = moods.groupBy { it.mood }.map { (mood, markers) ->
+        val info = markers.map { phaseInfo(it.date, periods) }
+        val days = info.filterNotNull().groupingBy { it.dayInCycle }.eachCount()
+        val phases = info.filterNotNull().groupingBy { it.phase }.eachCount()
+        // Tied cycle-day counts favor the earliest day, as on the web Stats page.
+        val day = days.entries.sortedWith(compareByDescending<Map.Entry<Int, Int>> { it.value }.thenBy { it.key }).firstOrNull()
+        val phase = phases.entries.maxByOrNull { it.value }
+        MoodPattern(mood, markers.size, day?.key, day?.value ?: 0, phase?.key, phase?.value ?: 0, info.count { it == null })
+    }.sortedByDescending { it.total }
 
     fun reminders(periods: List<Period>, from: LocalDate, days: Int = 90): List<Reminder> {
         if (periods.isEmpty()) return emptyList()

@@ -1,11 +1,11 @@
-## Web-inspired styling — Android 0.1.3
+## Fertility index, Stats, and phase information — Android 0.1.4
 
-- Calendar phases now form **connected pill-shaped bands** across adjacent days, with rounded ends at phase changes and week boundaries.
-- Uses the web app's full-strength menstrual pink, follicular light pink, ovulation blue, and luteal purple.
-- Matches the bright pink month header, Sunday-first weeks, and blank cells outside the current month.
-- Restores white/slate light mode and deep-purple dark mode, with matching borders, smaller rounded cards, and compact typography.
-- Compact next-period card, two-column phase legend, green/red period actions, and blue/purple mood buttons.
-- Selected/today outlines and mood dots remain visible over continuous phase bands.
+- **Fertility index** in the next-period card, calculated using the web app's cycle-timing rules. Tap its info icon for an explanation. The percentage is a relative timing index, not a pregnancy probability or a contraceptive method.
+- **Stats tab** replaces the basic History tab: completed-period averages to one decimal place, individual period durations, start-to-start cycle lengths, and editable period history. Active periods are shown separately and excluded from averages.
+- **Mood Patterns** summarizes each mood's total markers, most common cycle day and phase, and markers outside available cycle history.
+- **Phase information** opens from the calendar legend, today's phase, or the selected date's Phase info button. Includes descriptions, what's happening, and self-care tips for all four phases.
+- The selected date now shows its cycle day. Empty statistics display “No data” instead of default prediction values.
+- Retains connected calendar phase pills and the web-inspired light/deep-purple dark themes.
 
 ### Included
 

@@ -50,7 +50,6 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit.DAYS
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val model: TrackerViewModel by viewModels()
@@ -106,7 +105,7 @@ fun TrackerApp(model: TrackerViewModel) {
         bottomBar = { if (status.connected && !status.signingIn) Column {
             HorizontalDivider()
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                listOf("Calendar", "History", "Settings").forEachIndexed { index, label ->
+                listOf("Calendar", "Stats", "Settings").forEachIndexed { index, label ->
                     NavigationBarItem(selected = tab == index, onClick = { tab = index },
                         icon = { Icon(painterResource(listOf(R.drawable.ic_calendar, R.drawable.ic_history, R.drawable.ic_settings)[index]), contentDescription = null) },
                         label = { Text(label) }, colors = NavigationBarItemDefaults.colors(
@@ -127,7 +126,7 @@ fun TrackerApp(model: TrackerViewModel) {
                 }, onEdit = { newPeriod = false; editing = it }, onMood = { date, mood ->
                     model.run("Mood added.") { model.repo.addMood(date, mood) }
                 }, onDeleteMood = { mood -> model.run("Mood removed.") { model.repo.deleteMood(mood.id) } })
-                1 -> HistoryScreen(data, status.busy, onEdit = { newPeriod = false; editing = it }, onDelete = { deleting = it })
+                1 -> StatsScreen(data, status.busy, onEdit = { newPeriod = false; editing = it }, onDelete = { deleting = it })
                 else -> key(resumed, status.revision) { SettingsScreen(model) }
             }
         }
@@ -170,6 +169,7 @@ private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAd
     var monthText by rememberSaveable { mutableStateOf(YearMonth.from(today).toString()) }
     var selectedText by rememberSaveable { mutableStateOf(today.toString()) }
     var moodDialog by remember { mutableStateOf(false) }
+    var phaseDialog by remember { mutableStateOf<Phase?>(null) }
     val month = YearMonth.parse(monthText)
     val selected = LocalDate.parse(selectedText)
     val active = data.periods.firstOrNull { it.end == null }
@@ -208,6 +208,10 @@ private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAd
                     }
                     Text(selectedPeriod?.let { "Period: ${it.start} – ${it.end ?: "active"}" }
                         ?: "Estimated phase: ${Cycle.phase(selected, data.periods)?.label ?: "Not enough data"}", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    Cycle.phaseInfo(selected, data.periods)?.let { info ->
+                        Text("Cycle day ${info.dayInCycle} · ${info.phase.label}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                        TextButton(onClick = { phaseDialog = info.phase }) { Text("Phase info") }
+                    }
                     if (selectedPeriod != null) TextButton(onClick = { onEdit(selectedPeriod) }, enabled = !busy) { Text("Edit period dates") }
                     else if (active != null) TextButton(onClick = { onEdit(active) }, enabled = !busy) { Text("Edit / end active period") }
                 }
@@ -232,6 +236,7 @@ private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAd
         }, confirmButton = { TextButton(enabled = mood.isNotBlank(), onClick = { onMood(selected, mood.trim()); moodDialog = false }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { moodDialog = false }) { Text("Cancel") } })
     }
+    phaseDialog?.let { PhaseInfoDialog(it, onDismiss = { phaseDialog = null }) }
 }
 
 @Composable
@@ -239,6 +244,7 @@ private fun PredictionCard(data: Snapshot, today: LocalDate) {
     val colors = MaterialTheme.colorScheme
     val prediction = Cycle.prediction(data.periods)
     val phase = Cycle.phase(today, data.periods)
+    var showPhaseInfo by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, colors.outline), shadowElevation = 1.dp) {
         Row(Modifier.height(IntrinsicSize.Min)) {
             Box(Modifier.width(4.dp).fillMaxHeight().background(TrackerColors.Accent))
@@ -260,39 +266,22 @@ private fun PredictionCard(data: Snapshot, today: LocalDate) {
                     }
                 }
                 HorizontalDivider()
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (phase != null) Box(Modifier.size(8.dp).background(phase.color(), CircleShape))
-                    Text(phase?.let { "${it.label} · estimated phase" } ?: "Log two completed periods for predictions.",
-                        color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                FertilityIndex(Cycle.fertility(today, data.periods))
+                if (phase != null) {
+                    TextButton(onClick = { showPhaseInfo = true }, contentPadding = PaddingValues(0.dp)) {
+                        Box(Modifier.size(8.dp).background(phase.color(), CircleShape))
+                        Spacer(Modifier.width(8.dp))
+                        Text("${phase.label} · phase info", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.width(8.dp))
+                        Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = colors.onSurfaceVariant)
+                    }
+                } else {
+                    Text("Log two completed periods for predictions.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
     }
-}
-
-@Composable
-private fun HistoryScreen(data: Snapshot, busy: Boolean, onEdit: (Period) -> Unit, onDelete: (Period) -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Text("Your history", style = MaterialTheme.typography.headlineMedium)
-            Text("${data.periods.size} periods logged")
-            Text("Average period: ${Cycle.periodLength(data.periods)} days${if (data.periods.none { it.end != null }) " (default)" else ""}")
-            Text("Average cycle: ${String.format(Locale.getDefault(), "%.1f", Cycle.cycleLength(data.periods))} days${if (Cycle.gaps(data.periods).isEmpty()) " (default)" else ""}")
-            if (data.periods.isEmpty()) Text("Select a date on the calendar to log your first period.")
-        }
-        items(data.periods.sortedByDescending { it.start }, key = { it.id }) { period ->
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Column(Modifier.padding(16.dp)) {
-                Text("${period.start} – ${period.end ?: "Active"}", style = MaterialTheme.typography.titleMedium)
-                Cycle.length(period)?.let { Text("$it days") }
-                Row {
-                    TextButton(onClick = { onEdit(period) }, enabled = !busy) { Text("Edit") }
-                    TextButton(onClick = { onDelete(period) }, enabled = !busy) { Text("Delete") }
-                }
-            } }
-        }
-    }
+    if (showPhaseInfo && phase != null) PhaseInfoDialog(phase, onDismiss = { showPhaseInfo = false })
 }
 
 @Composable
