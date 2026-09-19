@@ -212,3 +212,16 @@ export async function passwordLogin(email: string, password: string, redirectTo?
   else await checkPassword(user.password, password);
   return createSession(user, redirectTo);
 }
+
+// Native sign-in verifies an existing account; a typo must never create a new account.
+export async function authenticatePassword(email: string, password: string) {
+  const user = await findUser({ email: email.trim().toLowerCase() });
+  // Do the same password derivation for missing/passwordless accounts.
+  const dummyHash = `${"00".repeat(16)}:${"00".repeat(64)}`;
+  try {
+    await checkPassword(user?.password || dummyHash, password);
+  } catch {
+    return null;
+  }
+  return user?.password ? { id: user.id, email: user.email } : null;
+}

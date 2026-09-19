@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { pbkdf2Sync } from "node:crypto";
 import { createClient } from "@libsql/client";
 import { pkceChallenge, signMobileToken } from "../src/auth/mobileTokens.ts";
 
@@ -30,6 +31,10 @@ test("mobile authorization and existing APIs enforce account ownership", { timeo
       CREATE TABLE periods (id TEXT PRIMARY KEY, user_id INTEGER, start_date TEXT, end_date TEXT, created_at INTEGER, updated_at INTEGER);
       CREATE TABLE mood_markers (id TEXT PRIMARY KEY, user_id INTEGER, date TEXT, mood TEXT, created_at INTEGER, updated_at INTEGER);
     `);
+    const password = "test-password-with-spaces ";
+    const salt = "ab".repeat(16);
+    const hash = pbkdf2Sync(password, Buffer.from(salt, "hex"), 100_000, 64, "sha512").toString("hex");
+    await db.execute({ sql: "UPDATE users SET password = ? WHERE id = 1", args: [`${salt}:${hash}`] });
     server = spawn(process.execPath, [".output/server/index.mjs"], {
       env: { ...process.env, NODE_PATH: nativeModules, PORT: "31987", HOST: "127.0.0.1", SESSION_SECRET: secret, TURSO_DATABASE_URL: url, TURSO_AUTH_TOKEN: "", NODE_ENV: "test" },
       stdio: ["ignore", "pipe", "pipe"],
@@ -45,6 +50,27 @@ test("mobile authorization and existing APIs enforce account ownership", { timeo
     const auth = { Authorization: `Bearer ${token(1)}` };
     assert.equal((await fetch(origin + "/api/periods")).status, 401);
     assert.equal((await fetch(origin + "/api/periods", { headers: { Authorization: "Bearer forged" } })).status, 401);
+    const login = (email: unknown, password: unknown) => fetch(origin + "/api/mobile/login", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }),
+    });
+    assert.equal((await login("one@example.test", "wrong-password")).status, 401);
+    assert.equal((await login("unknown@example.test", password)).status, 401);
+    assert.equal((await login("two@example.test", password)).status, 401); // OAuth-only account
+    assert.equal((await login("one@example.test", password.trim())).status, 401); // Passwords must not be normalized.
+    assert.equal((await login("", password)).status, 400);
+    assert.equal((await login("one@example.test", "x".repeat(1025))).status, 400);
+    assert.equal((await login({ email: "one@example.test" }, password)).status, 400);
+    assert.equal((await fetch(origin + "/api/mobile/login", { method: "POST", body: "email=one@example.test" })).status, 415);
+    const signedIn = await login(" ONE@EXAMPLE.TEST ", password);
+    assert.equal(signedIn.status, 200);
+    assert.equal(signedIn.headers.get("cache-control"), "no-store");
+    assert.equal(signedIn.headers.get("set-cookie"), null); // Native login needs no browser session.
+    const nativeSession = await signedIn.json();
+    assert.equal(nativeSession.email, "one@example.test");
+    assert.equal(typeof nativeSession.token, "string");
+    assert.ok(nativeSession.expiresAt > Date.now() / 1000);
+    assert.equal(nativeSession.password, undefined);
+    assert.equal((await db.execute("SELECT count(*) AS count FROM users")).rows[0].count, 2);
     const verifier = "v".repeat(43);
     const state = "s".repeat(43);
     const challenge = pkceChallenge(verifier);
@@ -67,7 +93,7 @@ test("mobile authorization and existing APIs enforce account ownership", { timeo
     assert.equal(exchanged.status, 200);
     const session = await exchanged.json();
     assert.equal(session.email, "one@example.test");
-    const headers = { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json" };
+    const headers = { Authorization: `Bearer ${nativeSession.token}`, "Content-Type": "application/json" };
     const created = await fetch(origin + "/api/periods", { method: "POST", headers, body: JSON.stringify({ startDate: "2026-01-01", endDate: "2026-01-05" }) });
     assert.equal(created.status, 200);
     const { period } = await created.json();

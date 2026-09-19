@@ -1,12 +1,12 @@
 # Native Android app
 
-Kotlin / Jetpack Compose app for the existing Period Tracker account. Package: `dev.logno.period`; Android 8.0+ (API 26). Default backend: `https://p.logno.app`, configurable at connection time.
+Kotlin / Jetpack Compose app for the existing Period Tracker account. Package: `dev.logno.period`; Android 8.0+ (API 26). Backend: `https://p.logno.app`, built into the app. Sign in with your existing email and password directly in Android; no server URL or browser flow is needed.
 
 ## Features
 
 - Native month calendar with logged periods, estimated phases, predictions, and mood markers.
 - Add, edit, end, and delete periods; add/remove moods; history and cycle statistics.
-- Browser-based account connection with PKCE and Android Keystore-protected access tokens.
+- Native email/password sign-in and Android Keystore-protected access tokens.
 - Shared server data; private on-device cache for offline reading. Edits require internet.
 - Foreground synchronization and WorkManager background sync approximately every six hours.
 - Local notifications for phase changes, approaching ovulation, and predicted periods.
@@ -25,19 +25,20 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-Debug installs use `dev.logno.period.debug`; production uses `dev.logno.period`. Both handle the authorization link, so Android may ask which app to open when both are installed.
+Debug installs use `dev.logno.period.debug`; production uses `dev.logno.period`.
 
 ## Backend deployment and authentication
 
-Deploy the web changes in this repository before connecting the app. No database migration or new service is required. `SESSION_SECRET` must be at least 32 characters.
+Deploy the web changes in this repository before signing in. No database migration or new service is required. The backend uses its existing environment variables: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `SESSION_SECRET` (at least 32 characters). These secrets stay on the server; they are not Android build variables or APK contents.
 
-1. Android generates a random verifier and state and opens `/api/mobile/authorize` in a Custom Tab.
-2. The existing web session/password login identifies the account. The browser displays an explicit connection button.
-3. Same-origin approval creates a signed, two-minute authorization code bound to the PKCE challenge. A fixed `dev.logno.period://authorize` link returns it to the app.
-4. The app validates state and exchanges the code plus verifier at `/api/mobile/token` for a 30-day signed bearer token.
-5. Existing authenticated period/mood APIs accept the token and resolve its user ID against the database. Android never receives a database credential or stores a password.
+1. Android sends the native sign-in form to `https://p.logno.app/api/mobile/login` over HTTPS.
+2. The backend looks up the existing account and verifies its salted PBKDF2 password hash using the same verifier as the web app. Incorrect credentials never create an account.
+3. A successful login returns a 30-day signed bearer token, which Android encrypts using its Keystore. The password is kept only in memory while signing in and cleared after success.
+4. Existing authenticated period/mood APIs accept the token and resolve its user ID against the database.
 
-Disconnect clears local credentials, history, and notifications. Tokens expire after 30 days; reconnect in Settings. There is no per-device server revocation list in this version. Rotating `SESSION_SECRET` invalidates all mobile tokens and web sessions. The short-lived PKCE code is stateless, so it is not tracked as one-time-used server-side.
+An existing password-based account is required. Accounts created exclusively through OAuth need a password provisioned before they can use native password sign-in. Older mobile browser-authorization endpoints remain available for compatibility, but this Android version does not use them.
+
+Disconnect clears local credentials, history, and notifications. Tokens expire after 30 days; use **Settings → Sign in again**. Signing back into the same account retains its cached history and delivered-reminder state. There is no per-device server revocation list in this version. Rotating `SESSION_SECRET` invalidates all mobile tokens and web sessions.
 
 ## Notification behavior
 
@@ -79,8 +80,8 @@ For this repository's initial automated setup, the local keystore is retained at
 To publish after committing and pushing changes:
 
 ```sh
-git tag android-v0.1.1
-git push origin android-v0.1.1
+git tag android-v0.1.3
+git push origin android-v0.1.3
 ```
 
 Version codes are `major * 1,000,000 + minor * 1,000 + patch`; minor/patch must be 0–999. Use increasing versions and never replace published APKs with differently signed builds.
@@ -90,11 +91,11 @@ In Obtainium:
 1. Add app source `https://github.com/logno-dev/period-web`.
 2. Optionally filter release tags with `^android-v` and assets with `^period-tracker-.*\.apk$`.
 3. Install the latest release and enable update checks.
-4. Open the app, connect your account, and enable notifications on each device.
+4. Open the app, sign in with your existing email/password, and enable notifications on each device.
 
 ## Verification
 
-JVM tests cover prediction confidence, active-cycle references, DST/leap-day arithmetic, phase boundaries, notification dates, and invalid period ranges. Instrumentation tests launch the Compose connection screen and verify actual Android notification delivery, channel, privacy text, and tap intent. Server token tests cover tampering, expiry, purpose separation, and the RFC 7636 PKCE vector:
+JVM tests cover prediction confidence, active-cycle references, DST/leap-day arithmetic, phase boundaries, notification dates, and invalid period ranges. Instrumentation tests check native sign-in fields and verify actual Android notification delivery, channel, privacy text, and tap intent. Backend integration tests verify native login, rejection of incorrect credentials, email normalization, password preservation, and account ownership. Server token tests cover tampering, expiry, purpose separation, and the legacy RFC 7636 PKCE vector:
 
 ```sh
 node --test tests/mobileTokens.test.ts

@@ -5,6 +5,9 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.os.Build
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -18,9 +21,14 @@ import org.junit.runner.RunWith
 class NativeSmokeTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
-    @Test fun connectionScreenUsesConfiguredServer() {
-        compose.onNodeWithText("Connect in browser").assertIsDisplayed()
-        compose.onNodeWithText("https://p.logno.app").assertIsDisplayed()
+    @Test fun nativeSignInNeedsCredentialsWithoutServerOrBrowser() {
+        compose.onNodeWithText("Sign in").assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithText("Email").performTextInput("one@example.test")
+        compose.onNodeWithText("Sign in").assertIsNotEnabled()
+        compose.onNodeWithText("Password").performTextInput("test-password")
+        compose.onNodeWithText("Sign in").assertIsEnabled()
+        compose.onNodeWithText("Web app URL").assertDoesNotExist()
+        compose.onNodeWithText("Connect in browser").assertDoesNotExist()
     }
 
     @Test fun nativeNotificationsUseChannelPrivacyAndTapIntent() {

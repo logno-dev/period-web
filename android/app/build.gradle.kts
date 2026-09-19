@@ -11,8 +11,8 @@ android {
         applicationId = "dev.logno.period"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.environmentVariable("ANDROID_VERSION_CODE").orElse("1001").get().toInt()
-        versionName = providers.environmentVariable("ANDROID_VERSION_NAME").orElse("0.1.1").get()
+        versionCode = providers.environmentVariable("ANDROID_VERSION_CODE").orElse("1002").get().toInt()
+        versionName = providers.environmentVariable("ANDROID_VERSION_NAME").orElse("0.1.2").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -44,7 +44,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.16.0")
-    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")

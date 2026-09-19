@@ -18,8 +18,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
@@ -65,7 +63,7 @@ private class TokenVault(context: Context) {
     }
 }
 
-class AuthExpired : Exception("Your connection expired. Reconnect your account in Settings.")
+class AuthExpired : Exception("Your session expired. Sign in again in Settings.")
 
 class Repository(private val context: Context) {
     val prefs = context.getSharedPreferences("tracker", Context.MODE_PRIVATE)
@@ -75,41 +73,28 @@ class Repository(private val context: Context) {
         .followRedirects(false).build()
     private val mutable = MutableStateFlow(runCatching { parseSnapshot(JSONObject(prefs.getString("cache", "")!!)) }.getOrDefault(Snapshot()))
     val snapshot = mutable.asStateFlow()
-    val connected get() = vault.read() != null
-    val server get() = prefs.getString("server", "https://p.logno.app")!!
+    val connected get() = prefs.getString("server", null) == server && vault.read() != null
+    val server = "https://p.logno.app"
     val email get() = prefs.getString("email", "")!!
     val enabled get() = prefs.getBoolean("reminders", false)
     val hour get() = prefs.getInt("hour", 9)
     val minute get() = prefs.getInt("minute", 0)
     val privateNotifications get() = prefs.getBoolean("private", true)
 
-    fun beginLogin(input: String): Uri {
-        val uri = Uri.parse(input.trim().trimEnd('/'))
-        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null &&
-            (uri.path.isNullOrEmpty() || uri.path == "/") && uri.query == null && uri.fragment == null) { "Enter the HTTPS origin of your web app (for example https://tracker.example.com)." }
-        val random = SecureRandom()
-        fun nonce() = Base64.encodeToString(ByteArray(32).also(random::nextBytes), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        val verifier = nonce()
-        val state = nonce()
-        val challenge = Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        prefs.edit().putString("pendingServer", uri.toString()).putString("verifier", verifier).putString("state", state).apply()
-        return Uri.parse("$uri/api/mobile/authorize").buildUpon().appendQueryParameter("challenge", challenge).appendQueryParameter("state", state).build()
-    }
-
-    suspend fun completeLogin(uri: Uri) = withContext(Dispatchers.IO) { mutex.withLock {
-        require(uri.scheme == "dev.logno.period" && uri.host == "authorize") { "Invalid callback." }
-        val state = prefs.getString("state", null)
-        require(state != null && uri.getQueryParameter("state") == state) { "Connection request expired. Try again." }
-        val origin = prefs.getString("pendingServer", null) ?: error("No pending connection")
-        val body = JSONObject().put("code", uri.getQueryParameter("code")).put("verifier", prefs.getString("verifier", null))
-        val result = request(origin, "/api/mobile/token", "POST", body, null)
-        // Never show one account's cached data under another account.
-        Reminders.cancel(context)
-        mutable.value = Snapshot()
-        prefs.edit().remove("cache").remove("delivered").putString("server", origin).putString("email", result.getString("email"))
-            .remove("state").remove("verifier").remove("pendingServer").commit()
+    suspend fun signIn(email: String, password: String) = withContext(Dispatchers.IO) { mutex.withLock {
+        val body = JSONObject().put("email", email.trim()).put("password", password)
+        val result = request(server, "/api/mobile/login", "POST", body, null)
+        val sameAccount = connected && this@Repository.email == result.getString("email")
+        val editor = prefs.edit()
+        if (!sameAccount) {
+            // Never show one account's cached data under another account.
+            Reminders.cancel(context)
+            mutable.value = Snapshot()
+            editor.remove("cache").remove("delivered")
+        }
         vault.write(result.getString("token"))
-        refreshLocked()
+        check(editor.putString("server", server).putString("email", result.getString("email"))
+            .remove("state").remove("verifier").remove("pendingServer").commit())
     } }
 
     private fun request(origin: String, path: String, method: String = "GET", json: JSONObject? = null, token: String? = vault.read()): JSONObject {
@@ -118,7 +103,10 @@ class Repository(private val context: Context) {
         if (token != null) builder.header("Authorization", "Bearer $token")
         client.newCall(builder.build()).execute().use { response ->
             if (response.code == 401 && token != null) throw AuthExpired()
-            if (!response.isSuccessful) throw Exception("Server request failed (${response.code}). Check the web deployment and try again.")
+            if (!response.isSuccessful) {
+                val error = runCatching { JSONObject(response.body?.string().orEmpty()).optString("error") }.getOrNull()
+                throw Exception(error?.takeIf { it.isNotBlank() } ?: "Server request failed (${response.code}). Please try again.")
+            }
             return JSONObject(response.body?.string() ?: error("Empty response"))
         }
     }

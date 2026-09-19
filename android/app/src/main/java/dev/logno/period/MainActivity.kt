@@ -14,7 +14,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +22,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +37,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -52,17 +59,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) intent.data?.let(model::completeLogin)
         setContent {
             val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFFFA6C5))
                 else lightColorScheme(primary = Color(0xFFAD285C), secondary = Color(0xFF7953A0))
             MaterialTheme(colorScheme = colors) { TrackerApp(model) }
         }
-    }
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        intent.data?.let(model::completeLogin)
     }
 }
 
@@ -107,7 +108,7 @@ fun TrackerApp(model: TrackerViewModel) {
             if (status.connected) TextButton(onClick = model::refresh, enabled = !status.busy) { Text("Sync") }
         }) },
         snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = { if (status.connected) NavigationBar {
+        bottomBar = { if (status.connected && !status.signingIn) NavigationBar {
             listOf("Calendar", "History", "Settings").forEachIndexed { index, label ->
                 NavigationBarItem(selected = tab == index, onClick = { tab = index }, icon = { Text(listOf("▦", "≡", "⚙")[index]) }, label = { Text(label) })
             }
@@ -115,7 +116,7 @@ fun TrackerApp(model: TrackerViewModel) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (status.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (!status.connected) {
+            if (!status.connected || status.signingIn) {
                 ConnectionScreen(model, status.busy)
             } else when (tab) {
                 0 -> CalendarScreen(data, today, status.busy, onAdd = { date ->
@@ -138,17 +139,25 @@ fun TrackerApp(model: TrackerViewModel) {
 
 @Composable
 private fun ConnectionScreen(model: TrackerViewModel, busy: Boolean) {
-    val context = LocalContext.current
-    var server by rememberSaveable { mutableStateOf(model.repo.server) }
-    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+    var email by rememberSaveable { mutableStateOf(model.repo.email) }
+    // Keep passwords in memory only, never in saved-instance state or preferences.
+    var password by remember { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
+    val canSubmit = !busy && email.isNotBlank() && password.isNotEmpty()
+    val submit = { if (canSubmit) model.signIn(email, password) { password = "" } }
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text("Your cycle, together", style = MaterialTheme.typography.headlineLarge)
-        Text("Connect your existing web account to share your tracking history across devices and receive native reminders.")
-        OutlinedTextField(server, { server = it }, label = { Text("Web app URL") }, placeholder = { Text("https://tracker.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(enabled = !busy, onClick = {
-            runCatching { CustomTabsIntent.Builder().build().launchUrl(context, model.repo.beginLogin(server)) }
-                .onFailure { model.message(it.message ?: "Unable to open browser.") }
-        }) { Text("Connect in browser") }
-        Text("Sign in, approve the connection, then tap Return to Period Tracker. Your password stays in the browser.", style = MaterialTheme.typography.bodyMedium)
+        Text("Sign in with your existing Period Tracker account to sync your history and receive native reminders.")
+        OutlinedTextField(email, { email = it.take(254) }, label = { Text("Email") }, singleLine = true, enabled = !busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(password, { password = it.take(1024) }, label = { Text("Password") }, singleLine = true, enabled = !busy,
+            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Hide" else "Show") } },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { submit() }), modifier = Modifier.fillMaxWidth())
+        Button(enabled = canSubmit, onClick = submit, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Signing in…" else "Sign in") }
+        Text("Uses your account at p.logno.app. Your password is not saved on this device.", style = MaterialTheme.typography.bodyMedium)
+        if (model.repo.connected) TextButton(enabled = !busy, onClick = { model.showSignIn(false) }) { Text("Back to tracker") }
     }
 }
 
@@ -283,6 +292,7 @@ private fun SettingsScreen(model: TrackerViewModel) {
     val context = LocalContext.current
     val repo = model.repo
     val data by model.snapshot.collectAsStateWithLifecycle()
+    val status by model.status.collectAsStateWithLifecycle()
     var enabled by remember { mutableStateOf(repo.enabled) }
     var private by remember { mutableStateOf(repo.privateNotifications) }
     var hour by remember { mutableIntStateOf(repo.hour) }
@@ -303,9 +313,7 @@ private fun SettingsScreen(model: TrackerViewModel) {
             val synced = data.syncedAt
             Text(if (synced == 0L) "Not synced yet" else "Last synced: ${Instant.ofEpochMilli(synced).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, HH:mm"))}")
             Text("History is cached for offline viewing. Edits require a connection. Background sync runs approximately every 6 hours.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = {
-                runCatching { CustomTabsIntent.Builder().build().launchUrl(context, repo.beginLogin(repo.server)) }.onFailure { model.message(it.message) }
-            }) { Text("Reconnect account") }
+            TextButton(enabled = !status.busy, onClick = { model.showSignIn(true) }) { Text("Sign in again") }
         }
         item {
             HorizontalDivider()
