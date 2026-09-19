@@ -31,7 +31,8 @@ export const formLogin = action(async (formData: FormData) => {
   const password = formData.get("password");
   if (typeof email !== "string" || typeof password !== "string")
     return new Error("Email and password are required");
-  return await passwordLogin(email.trim().toLowerCase(), password);
+  const redirectTo = formData.get("redirect");
+  return await passwordLogin(email.trim().toLowerCase(), password, typeof redirectTo === "string" ? redirectTo : undefined);
 });
 
 export const logout = action(async () => {

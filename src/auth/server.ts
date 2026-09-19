@@ -6,6 +6,8 @@ import { db } from "../db";
 import { users } from "../db/schema";
 import { periods, moodMarkers } from "../db/schema";
 import { count, eq, sql } from "drizzle-orm";
+import { getRequestHeader } from "vinxi/http";
+import { verifyMobileToken } from "./mobileTokens";
 
 export interface Session {
   id?: number | string;
@@ -102,6 +104,11 @@ async function migrateLegacyRows(legacyUserId: number, canonicalUserId: number) 
 }
 
 export async function getSessionUser(): Promise<ResolvedSessionUser | null> {
+  const authorization = getRequestHeader("authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const claims = verifyMobileToken(authorization.slice(7), "access");
+    return claims ? findUserById(claims.sub) : null;
+  }
   const session = await getSession();
   const data = session.data;
 
@@ -193,7 +200,7 @@ async function checkPassword(storedPassword: string, providedPassword: string) {
     throw new Error("Invalid email or password");
 }
 
-export async function passwordLogin(email: string, password: string) {
+export async function passwordLogin(email: string, password: string, redirectTo?: string) {
   let user = await findUser({ email });
   if (!user)
     user = await createUser({
@@ -203,5 +210,5 @@ export async function passwordLogin(email: string, password: string) {
   else if (!user.password)
     throw new Error("Account exists via OAuth. Sign in with your OAuth provider");
   else await checkPassword(user.password, password);
-  return createSession(user);
+  return createSession(user, redirectTo);
 }

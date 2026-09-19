@@ -1,5 +1,5 @@
 import { Title } from "@solidjs/meta";
-import { useSubmission } from "@solidjs/router";
+import { useSearchParams, useSubmission } from "@solidjs/router";
 import { Show } from "solid-js";
 import { formLogin } from "~/auth";
 import Header from "~/components/Header";
@@ -26,9 +26,11 @@ export default function Login() {
 
 function PasswordLogin() {
   const submission = useSubmission(formLogin);
+  const [params] = useSearchParams();
 
   return (
     <form action={formLogin} method="post" class="space-y-4 space-x-12">
+      <input type="hidden" name="redirect" value={typeof params.redirect === "string" ? params.redirect : "/"} />
       <label 
         for="email" 
         class="block text-left w-full"

@@ -1,5 +1,11 @@
 # Period Tracker Web App
 
+## Native Android app
+
+A Kotlin / Jetpack Compose companion is available in [`android/`](android/README.md), with shared account history, offline viewing, and native Android reminders. Signed APKs are published by GitHub Actions for installation and updates through [Obtainium](https://github.com/ImranR98/Obtainium).
+
+Use `https://github.com/logno-dev/period-web` as the Obtainium source. See the [Android guide](android/README.md) for building, signing, notification behavior, and release setup.
+
 A comprehensive web-based period tracking application built with SolidStart, featuring calendar visualization, cycle predictions, and statistical analysis. This is a web port of the React Native period tracker app with enhanced features and cloud storage.
 
 ## Features
