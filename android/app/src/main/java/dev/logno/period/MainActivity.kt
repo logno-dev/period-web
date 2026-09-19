@@ -15,13 +15,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,17 +30,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -51,7 +49,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit.DAYS
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -60,18 +58,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFFFA6C5))
-                else lightColorScheme(primary = Color(0xFFAD285C), secondary = Color(0xFF7953A0))
-            MaterialTheme(colorScheme = colors) { TrackerApp(model) }
+            TrackerTheme { TrackerApp(model) }
         }
     }
-}
-
-private fun Phase.color() = when (this) {
-    Phase.MENSTRUAL -> Color(0xFFD53F8C)
-    Phase.FOLLICULAR -> Color(0xFFFBB6CE)
-    Phase.OVULATION -> Color(0xFF3182CE)
-    Phase.LUTEAL -> Color(0xFF805AD5)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -104,13 +93,27 @@ fun TrackerApp(model: TrackerViewModel) {
         status.message?.let { snackbar.showSnackbar(it); model.message(null) }
     }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Period Tracker") }, actions = {
-            if (status.connected) TextButton(onClick = model::refresh, enabled = !status.busy) { Text("Sync") }
-        }) },
+        topBar = { Column {
+            TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(16.dp).background(TrackerColors.Brand, CircleShape))
+                Text("Period Tracker", style = MaterialTheme.typography.titleLarge)
+            } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface), actions = {
+                if (status.connected) TextButton(onClick = model::refresh, enabled = !status.busy) { Text("Sync") }
+            })
+            HorizontalDivider()
+        } },
         snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = { if (status.connected && !status.signingIn) NavigationBar {
-            listOf("Calendar", "History", "Settings").forEachIndexed { index, label ->
-                NavigationBarItem(selected = tab == index, onClick = { tab = index }, icon = { Text(listOf("▦", "≡", "⚙")[index]) }, label = { Text(label) })
+        bottomBar = { if (status.connected && !status.signingIn) Column {
+            HorizontalDivider()
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                listOf("Calendar", "History", "Settings").forEachIndexed { index, label ->
+                    NavigationBarItem(selected = tab == index, onClick = { tab = index },
+                        icon = { Icon(painterResource(listOf(R.drawable.ic_calendar, R.drawable.ic_history, R.drawable.ic_settings)[index]), contentDescription = null) },
+                        label = { Text(label) }, colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant, unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant))
+                }
             }
         } }
     ) { padding ->
@@ -155,7 +158,7 @@ private fun ConnectionScreen(model: TrackerViewModel, busy: Boolean) {
             trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Hide" else "Show") } },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { submit() }), modifier = Modifier.fillMaxWidth())
-        Button(enabled = canSubmit, onClick = submit, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Signing in…" else "Sign in") }
+        Button(enabled = canSubmit, onClick = submit, shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Signing in…" else "Sign in") }
         Text("Uses your account at p.logno.app. Your password is not saved on this device.", style = MaterialTheme.typography.bodyMedium)
         if (model.repo.connected) TextButton(enabled = !busy, onClick = { model.showSignIn(false) }) { Text("Back to tracker") }
     }
@@ -164,66 +167,51 @@ private fun ConnectionScreen(model: TrackerViewModel, busy: Boolean) {
 @Composable
 private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAdd: (LocalDate) -> Unit, onEdit: (Period) -> Unit,
                            onMood: (LocalDate, String) -> Unit, onDeleteMood: (Mood) -> Unit) {
-    var monthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var monthText by rememberSaveable { mutableStateOf(YearMonth.from(today).toString()) }
     var selectedText by rememberSaveable { mutableStateOf(today.toString()) }
     var moodDialog by remember { mutableStateOf(false) }
     val month = YearMonth.parse(monthText)
     val selected = LocalDate.parse(selectedText)
-    val prediction = Cycle.prediction(data.periods)
     val active = data.periods.firstOrNull { it.end == null }
     val selectedPeriod = data.periods.firstOrNull { selected >= it.start && selected <= (it.end ?: today) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    val colors = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    LazyColumn(Modifier.widthIn(max = 560.dp).fillMaxWidth(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { PredictionCard(data, today) }
         item {
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(Cycle.phase(today, data.periods)?.label ?: "Welcome to your tracker", style = MaterialTheme.typography.headlineSmall)
-                Text(if (prediction != null) "Next period: ${prediction.date} · ${prediction.confidence.lowercase()} confidence" else "Log at least two completed periods for a prediction.")
-                if (prediction != null && prediction.date < today) Text("The predicted date has passed. Update your history when your next period starts.")
-                if (active != null) Text("Active period since ${active.start}", fontWeight = FontWeight.Bold)
-                Cycle.reminders(data.periods, today, 1).forEach { Text("${it.title}: ${it.text}", style = MaterialTheme.typography.bodyMedium) }
-            } }
+            TrackerCalendar(month, data, today, selected, onMonthChange = { monthText = it.toString() }, onSelect = { selectedText = it.toString() })
+        }
+        item { PhaseLegend() }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val ongoing = selectedPeriod != null && selectedPeriod.end == null
+                Button(modifier = Modifier.weight(1f).heightIn(min = 50.dp), shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (ongoing) TrackerColors.Error else TrackerColors.Success),
+                    enabled = !busy && selected <= today, onClick = {
+                        when {
+                            ongoing -> onEdit(selectedPeriod!!.copy(end = selected))
+                            selectedPeriod != null -> onEdit(selectedPeriod)
+                            else -> onAdd(selected)
+                        }
+                    }) { Text(if (ongoing) "Stop period" else if (selectedPeriod != null) "Edit period" else "Start period", fontWeight = FontWeight.Bold) }
+                Button(modifier = Modifier.weight(1f).heightIn(min = 50.dp), shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.secondary),
+                    enabled = !busy && selected <= today, onClick = { moodDialog = true }) { Text("Add mood marker", fontWeight = FontWeight.SemiBold) }
+            }
         }
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { monthText = month.minusMonths(1).toString() }, modifier = Modifier.semantics { contentDescription = "Previous month" }) { Text("‹") }
-                Text("${month.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${month.year}", style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { monthText = month.plusMonths(1).toString() }, modifier = Modifier.semantics { contentDescription = "Next month" }) { Text("›") }
-            }
-            Row { listOf("M", "T", "W", "T", "F", "S", "S").forEach { Text(it, Modifier.weight(1f).wrapContentWidth(Alignment.CenterHorizontally)) } }
-            val start = month.atDay(1).minusDays(month.atDay(1).dayOfWeek.value - 1L)
-            repeat(6) { row ->
-                Row(Modifier.fillMaxWidth()) {
-                    repeat(7) { col ->
-                        val date = start.plusDays((row * 7 + col).toLong())
-                        val phase = Cycle.phase(date, data.periods)
-                        val actual = data.periods.any { date >= it.start && date <= (it.end ?: today) }
-                        val predicted = prediction?.let { date >= it.date && date < it.date.plusDays(Cycle.periodLength(data.periods).toLong()) } == true
-                        val baseColor = if (actual) Phase.MENSTRUAL.color() else if (predicted) Color(0xFFFBB6CE) else phase?.color()
-                        val background = baseColor?.copy(alpha = if (actual) 1f else 0.25f) ?: Color.Transparent
-                        val label = "$date${if (actual) ", logged period" else if (predicted) ", predicted period" else phase?.let { ", estimated ${it.label}" } ?: ""}"
-                        Box(Modifier.weight(1f).aspectRatio(1f).padding(2.dp).clip(CircleShape).background(background)
-                            .border(if (date == selected) 2.dp else 0.dp, if (date == selected) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                            .clickable { selectedText = date.toString() }.semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(date.dayOfMonth.toString(), color = if (actual) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = if (YearMonth.from(date) == month) 1f else 0.4f),
-                                    fontWeight = if (date == today) FontWeight.Black else FontWeight.Normal)
-                                if (data.moods.any { it.date == date }) Text("•", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
+            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, colors.outline)) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(selected.format(DateTimeFormatter.ofPattern("EEE, MMM d")), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = { monthText = YearMonth.from(today).toString(); selectedText = today.toString() }) { Text("Today") }
                     }
+                    Text(selectedPeriod?.let { "Period: ${it.start} – ${it.end ?: "active"}" }
+                        ?: "Estimated phase: ${Cycle.phase(selected, data.periods)?.label ?: "Not enough data"}", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    if (selectedPeriod != null) TextButton(onClick = { onEdit(selectedPeriod) }, enabled = !busy) { Text("Edit period dates") }
+                    else if (active != null) TextButton(onClick = { onEdit(active) }, enabled = !busy) { Text("Edit / end active period") }
                 }
             }
-            TextButton(onClick = { monthText = YearMonth.from(today).toString(); selectedText = today.toString() }) { Text("Today") }
-            Text("Pink: period · Pale pink: follicular / predicted period\nBlue: ovulation window · Purple: luteal · Dot: mood", style = MaterialTheme.typography.bodySmall)
-        }
-        item {
-            Text(selected.toString(), style = MaterialTheme.typography.titleLarge)
-            Text(selectedPeriod?.let { "Logged period: ${it.start} – ${it.end ?: "active"}" }
-                ?: "Estimated phase: ${Cycle.phase(selected, data.periods)?.label ?: "Not enough data"}")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !busy && selected <= today, onClick = { if (selectedPeriod != null) onEdit(selectedPeriod) else onAdd(selected) }) { Text(if (selectedPeriod != null) "Edit period" else "Log period") }
-                OutlinedButton(enabled = !busy && selected <= today, onClick = { moodDialog = true }) { Text("Add mood") }
-            }
-            if (active != null && selectedPeriod?.id != active.id) TextButton(onClick = { onEdit(active) }, enabled = !busy) { Text("Edit / end active period") }
         }
         items(data.moods.filter { it.date == selected }, key = { it.id }) { mood ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -231,7 +219,11 @@ private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAd
                 TextButton(onClick = { onDeleteMood(mood) }, enabled = !busy) { Text("Remove") }
             }
         }
-        item { Text("Phase and period predictions are estimates, not confirmation of ovulation or a contraceptive method.", style = MaterialTheme.typography.bodySmall) }
+        items(Cycle.reminders(data.periods, today, 1), key = { it.key }) { reminder ->
+            Text("${reminder.title}: ${reminder.text}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        }
+        item { Text("Phase and period predictions are estimates, not confirmation of ovulation or a contraceptive method.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
+    }
     }
     if (moodDialog) {
         var mood by rememberSaveable { mutableStateOf("") }
@@ -239,6 +231,42 @@ private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAd
             Column { Text("How are you feeling?"); OutlinedTextField(mood, { mood = it.take(80) }, placeholder = { Text("Happy, tired, anxious…") }) }
         }, confirmButton = { TextButton(enabled = mood.isNotBlank(), onClick = { onMood(selected, mood.trim()); moodDialog = false }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { moodDialog = false }) { Text("Cancel") } })
+    }
+}
+
+@Composable
+private fun PredictionCard(data: Snapshot, today: LocalDate) {
+    val colors = MaterialTheme.colorScheme
+    val prediction = Cycle.prediction(data.periods)
+    val phase = Cycle.phase(today, data.periods)
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, colors.outline), shadowElevation = 1.dp) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            Box(Modifier.width(4.dp).fillMaxHeight().background(TrackerColors.Accent))
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("NEXT PERIOD", color = colors.onSurfaceVariant, fontSize = 11.sp, letterSpacing = 0.8.sp)
+                        Text(prediction?.date?.format(DateTimeFormatter.ofPattern("MMM d, yyyy")) ?: "Waiting for history",
+                            color = colors.primary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                    if (prediction != null) {
+                        val days = DAYS.between(today, prediction.date)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(when { days < 0 -> "${-days} days overdue"; days == 0L -> "Expected today"; else -> "in $days days" },
+                                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text("${prediction.confidence.lowercase()} confidence", style = MaterialTheme.typography.bodySmall,
+                                color = when (prediction.confidence) { "High" -> TrackerColors.Success; "Medium" -> Color(0xFFF59E0B); else -> TrackerColors.Error })
+                        }
+                    }
+                }
+                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (phase != null) Box(Modifier.size(8.dp).background(phase.color(), CircleShape))
+                    Text(phase?.let { "${it.label} · estimated phase" } ?: "Log two completed periods for predictions.",
+                        color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 }
 
@@ -253,7 +281,9 @@ private fun HistoryScreen(data: Snapshot, busy: Boolean, onEdit: (Period) -> Uni
             if (data.periods.isEmpty()) Text("Select a date on the calendar to log your first period.")
         }
         items(data.periods.sortedByDescending { it.start }, key = { it.id }) { period ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Column(Modifier.padding(16.dp)) {
                 Text("${period.start} – ${period.end ?: "Active"}", style = MaterialTheme.typography.titleMedium)
                 Cycle.length(period)?.let { Text("$it days") }
                 Row {

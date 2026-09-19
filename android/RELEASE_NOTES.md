@@ -1,4 +1,13 @@
-## Native sign-in — Android 0.1.2
+## Web-inspired styling — Android 0.1.3
+
+- Calendar phases now form **connected pill-shaped bands** across adjacent days, with rounded ends at phase changes and week boundaries.
+- Uses the web app's full-strength menstrual pink, follicular light pink, ovulation blue, and luteal purple.
+- Matches the bright pink month header, Sunday-first weeks, and blank cells outside the current month.
+- Restores white/slate light mode and deep-purple dark mode, with matching borders, smaller rounded cards, and compact typography.
+- Compact next-period card, two-column phase legend, green/red period actions, and blue/purple mood buttons.
+- Selected/today outlines and mood dots remain visible over continuous phase bands.
+
+### Included
 
 - Kotlin + Jetpack Compose calendar, cycle phases, predictions, statistics, period editing, and mood tracking.
 - Sign in with your existing **email and password directly in the app**.

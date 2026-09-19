@@ -4,7 +4,7 @@ Kotlin / Jetpack Compose app for the existing Period Tracker account. Package: `
 
 ## Features
 
-- Native month calendar with logged periods, estimated phases, predictions, and mood markers.
+- Native Sunday-first month calendar with connected phase pills, logged periods, predictions, and mood markers. Phase colors, pink calendar header, compact cards, and light/deep-purple dark palettes match the web app.
 - Add, edit, end, and delete periods; add/remove moods; history and cycle statistics.
 - Native email/password sign-in and Android Keystore-protected access tokens.
 - Shared server data; private on-device cache for offline reading. Edits require internet.
@@ -80,8 +80,8 @@ For this repository's initial automated setup, the local keystore is retained at
 To publish after committing and pushing changes:
 
 ```sh
-git tag android-v0.1.3
-git push origin android-v0.1.3
+git tag android-v0.1.4
+git push origin android-v0.1.4
 ```
 
 Version codes are `major * 1,000,000 + minor * 1,000 + patch`; minor/patch must be 0–999. Use increasing versions and never replace published APKs with differently signed builds.
