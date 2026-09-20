@@ -230,11 +230,10 @@ private fun CalendarScreen(data: Snapshot, today: LocalDate, busy: Boolean, onAd
     }
     }
     if (moodDialog) {
-        var mood by rememberSaveable { mutableStateOf("") }
-        AlertDialog(onDismissRequest = { moodDialog = false }, title = { Text("Mood for $selected") }, text = {
-            Column { Text("How are you feeling?"); OutlinedTextField(mood, { mood = it.take(80) }, placeholder = { Text("Happy, tired, anxious…") }) }
-        }, confirmButton = { TextButton(enabled = mood.isNotBlank(), onClick = { onMood(selected, mood.trim()); moodDialog = false }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { moodDialog = false }) { Text("Cancel") } })
+        MoodPicker(selected, busy, onSelect = { mood ->
+            onMood(selected, mood)
+            moodDialog = false
+        }, onDismiss = { moodDialog = false })
     }
     phaseDialog?.let { PhaseInfoDialog(it, onDismiss = { phaseDialog = null }) }
 }

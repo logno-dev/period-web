@@ -1,11 +1,11 @@
-## Fertility index, Stats, and phase information — Android 0.1.4
+## Preset mood markers — Android 0.1.5
 
-- **Fertility index** in the next-period card, calculated using the web app's cycle-timing rules. Tap its info icon for an explanation. The percentage is a relative timing index, not a pregnancy probability or a contraceptive method.
-- **Stats tab** replaces the basic History tab: completed-period averages to one decimal place, individual period durations, start-to-start cycle lengths, and editable period history. Active periods are shown separately and excluded from averages.
-- **Mood Patterns** summarizes each mood's total markers, most common cycle day and phase, and markers outside available cycle history.
-- **Phase information** opens from the calendar legend, today's phase, or the selected date's Phase info button. Includes descriptions, what's happening, and self-care tips for all four phases.
-- The selected date now shows its cycle day. Empty statistics display “No data” instead of default prediction values.
-- Retains connected calendar phase pills and the web-inspired light/deep-purple dark themes.
+- Replaces free-text mood entry with the web app's **16 preset options**, in the same order and groups.
+- **Positive:** Happy, High energy, Aroused.
+- **Neutral:** Tender breasts, Full breasts, Deflated breasts, Spacey.
+- **Negative:** Low mood, Anxious, Irritable, Low energy, Bloating, Cramps, Constipation, Diarrhea, Headache.
+- Tap an option to add it to the selected date. The list scrolls and uses group colors with readable light/dark styling.
+- Existing mood markers remain available in the calendar and Stats page.
 
 ### Included
 

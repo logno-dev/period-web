@@ -11,8 +11,8 @@ android {
         applicationId = "dev.logno.period"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.environmentVariable("ANDROID_VERSION_CODE").orElse("1004").get().toInt()
-        versionName = providers.environmentVariable("ANDROID_VERSION_NAME").orElse("0.1.4").get()
+        versionCode = providers.environmentVariable("ANDROID_VERSION_CODE").orElse("1005").get().toInt()
+        versionName = providers.environmentVariable("ANDROID_VERSION_NAME").orElse("0.1.5").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

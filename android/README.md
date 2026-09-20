@@ -6,6 +6,7 @@ Kotlin / Jetpack Compose app for the existing Period Tracker account. Package: `
 
 - Native Sunday-first month calendar with connected phase pills, logged periods, predictions, and mood markers. Phase colors, pink calendar header, compact cards, and light/deep-purple dark palettes match the web app.
 - Add, edit, end, and delete periods; add/remove moods; history and cycle statistics.
+- Mood markers use the same 16 preset options as the web app, grouped under Positive, Neutral, and Negative. Tap an option to add it to the selected date.
 - Fertility index on the prediction card, using the web app's relative cycle-timing calculation, with a tappable explanation distinguishing it from pregnancy probability.
 - Full Stats tab: completed-period averages to one decimal place, individual durations and start-to-start cycle lengths, active periods, and mood patterns by cycle day/phase (including markers outside known cycle history).
 - Tappable phase legend, current phase, and selected-date phase details with descriptions, characteristics, and tips.
@@ -83,8 +84,8 @@ For this repository's initial automated setup, the local keystore is retained at
 To publish after committing and pushing changes:
 
 ```sh
-git tag android-v0.1.5
-git push origin android-v0.1.5
+git tag android-v0.1.6
+git push origin android-v0.1.6
 ```
 
 Version codes are `major * 1,000,000 + minor * 1,000 + patch`; minor/patch must be 0–999. Use increasing versions and never replace published APKs with differently signed builds.
